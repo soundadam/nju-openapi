@@ -1,0 +1,631 @@
+openapi: 3.1.0
+info:
+  title: 免修不免考 mtxkbl
+  version: "0.1.0"
+  summary: ehall 免修不免考办理，含真提交的写接口。非官方，会变。
+  description: |
+    非官方。服务大厅「免修不免考办理」：查自己的申请、查课程能不能申请、以及提交申请。
+
+    **警告：`sqmtkc.do` 是写操作，会真的向教务提交免修不免考申请并进入审核流程。
+    不要在 Playground 对生产环境点它。** 其余接口是查询，但也都要登录会话。
+
+    会话老三样：先 `appShow?appId=4792812354642924`，再带 `_roleId` 打 index，再 `changeAppRole`，
+    缺一步就 302/403。`appShow` 见 [登录](/auth)，本文件不重复该路径。
+
+    网页提交一次申请，实际按顺序打：`cxxkkc`（拿课序号 KXH）→ `cxkcsfksq`（能不能申）→
+    `cxxtcs` + `xscxtsmd`（定走正常还是特殊学生流程）→ stateapp 流程查询（拿初始状态代码 ZTDM）→
+    `sqmtkc`（写入）。前面几步的返回值是 `sqmtkc` 载荷的一部分，别跳步瞎填。
+  x-source: https://ehallapp.nju.edu.cn/jwapp/sys/mtxkbl
+  x-captured: "2026-08-24"
+  x-appId: "4792812354642924"
+  x-defaultRoleId: "20230211151103310"
+servers:
+  - url: https://ehallapp.nju.edu.cn
+security:
+  - ehallCookies: []
+tags:
+  - name: 会话
+  - name: 申请
+  - name: 前置
+  - name: 提交
+paths:
+  /jwapp/sys/mtxkbl/{emapDir}/index.do:
+    get:
+      tags: [会话]
+      operationId: mtxkblIndex
+      summary: 免修不免考应用首页
+      parameters:
+        - $ref: "#/components/parameters/emapDir"
+        - name: _roleId
+          in: query
+          required: true
+          schema:
+            type: string
+            default: "20230211151103310"
+        - name: EMAP_LANG
+          in: query
+          schema:
+            type: string
+            default: zh
+        - name: THEME
+          in: query
+          schema:
+            type: string
+            default: ""
+      responses:
+        "200":
+          description: 应用页 HTML
+        "403":
+          description: 缺应用授权或没走 appShow
+
+  /jwapp/sys/funauthapp/api/changeAppRole/mtxkbl/{roleId}.do:
+    get:
+      tags: [会话]
+      operationId: mtxkblChangeAppRole
+      summary: 切换免修不免考角色
+      description: GET，roleId 在路径里。默认教务学生组 `20230211151103310`。
+      parameters:
+        - name: roleId
+          in: path
+          required: true
+          schema:
+            type: string
+            default: "20230211151103310"
+      responses:
+        "200":
+          description: 角色已切换
+
+  /jwapp/sys/mtxkbl/modules/mtsq/cxmtsq.do:
+    post:
+      tags: [申请]
+      operationId: mtxkblListApplications
+      summary: 我的免修申请分页
+      description: |
+        action `cxmtsq`。`querySetting` 必带本人 `XH`（equal），可再加 `XNXQDM`（equal）按学期过滤。
+        `*order` 默认 `-SQSJ`（按申请时间倒序）。nju-cli 直接 `pageSize=999` 一把拉全。
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [querySetting, "*order", pageNumber, pageSize]
+              properties:
+                querySetting:
+                  type: string
+                  description: JSON 数组字符串，EMAP 筛选。
+                "*order":
+                  type: string
+                  default: "-SQSJ"
+                pageNumber:
+                  type: string
+                  default: "1"
+                pageSize:
+                  type: string
+                  default: "999"
+            examples:
+              byTerm:
+                value:
+                  querySetting: '[{"name":"XH","value":"000000000","linkOpt":"and","builder":"equal"},{"name":"XNXQDM","value":"2025-2026-1","linkOpt":"and","builder":"equal"}]'
+                  "*order": "-SQSJ"
+                  pageNumber: "1"
+                  pageSize: "999"
+      responses:
+        "200":
+          description: 信封 datas.cxmtsq
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplicationListEnvelope"
+              examples:
+                ok:
+                  value:
+                    code: "0"
+                    datas:
+                      cxmtsq:
+                        totalSize: 1
+                        pageNumber: 1
+                        pageSize: 999
+                        rows:
+                          - KCH: "00000000H"
+                            KCM: "示例课程"
+                            JXBID: "2025-2026-1-00000000H-001"
+                            SKJS: "示例教师"
+                            YPSJDD: "1-16周 星期一 3-4节 示例楼101"
+                            XNXQDM: "2025-2026-1"
+                            SQYY: "已修读过同等内容课程"
+                            ZTDM_DISPLAY: "审核中"
+                            SHYJ: null
+                            SQSJ: "2026-08-20 10:00:00"
+
+  /jwapp/sys/mtxkbl/modules/mtsq/cxxkkc.do:
+    post:
+      tags: [前置]
+      operationId: mtxkblSelectedCourse
+      summary: 查本人选课记录（拿 KXH）
+      description: |
+        action `cxxkkc`。按教学班 `JXBID` + 学号 `XH` + 学期 `XNXQDM` 查这个学生已选的这门课，
+        提交申请前用 `rows[0].KXH`（课序号）填载荷。nju-cli 只消费 `KXH`，其余行字段未逐一核实。
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [JXBID, XH, XNXQDM]
+              properties:
+                JXBID:
+                  type: string
+                  example: "2025-2026-1-00000000H-001"
+                XH:
+                  type: string
+                  example: "000000000"
+                XNXQDM:
+                  type: string
+                  example: "2025-2026-1"
+      responses:
+        "200":
+          description: 信封 datas.cxxkkc
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SelectedCourseEnvelope"
+              examples:
+                ok:
+                  value:
+                    code: "0"
+                    datas:
+                      cxxkkc:
+                        totalSize: 1
+                        rows:
+                          - KXH: "001"
+                            KCH: "00000000H"
+                            JXBID: "2025-2026-1-00000000H-001"
+                            XH: "000000000"
+                            XNXQDM: "2025-2026-1"
+
+  /jwapp/sys/mtxkbl/MtsqController/cxkcsfksq.do:
+    post:
+      tags: [前置]
+      operationId: mtxkblCheckCourseAllowed
+      summary: 查课程能不能申请免修
+      description: |
+        走 `MtsqController`，**不是** EMAP 信封。form 只有 `KCH`。
+        判据是 `data.code == "0"`（字符串）表示可申请；不行时看 `data.msg` 或顶层 `msg` 的原因。
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [KCH]
+              properties:
+                KCH:
+                  type: string
+                  example: "00000000H"
+      responses:
+        "200":
+          description: 非信封结构，看 `data.code`。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckAllowedResponse"
+              examples:
+                allowed:
+                  summary: 可申请
+                  value:
+                    data:
+                      code: "0"
+                      msg: null
+                denied:
+                  summary: 不可申请
+                  value:
+                    data:
+                      code: "1"
+                      msg: "该课程不在可申请范围内"
+
+  /jwapp/sys/mtxkbl/modules/mtsq/cxxtcs.do:
+    post:
+      tags: [前置]
+      operationId: mtxkblWorkflowSettings
+      summary: 查流程系统参数
+      description: |
+        action `cxxtcs`。form 的 key 是 `setting`（**不是** `querySetting`），值照抄下面的示例：
+        大类 `CSDM=XK`，子项 `ZCSDM` 取 `ZCXSLC`（正常学生流程）和 `TSXSLC`（特殊学生流程）。
+        行里 `CSZA` 是流程实例代码，下一步喂给 stateapp 的 `SLDM`。
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [setting]
+              properties:
+                setting:
+                  type: string
+                  description: JSON 数组字符串，同 querySetting 语法。
+            examples:
+              default:
+                value:
+                  setting: '[{"name":"CSDM","value":"XK","builder":"equal","linkOpt":"AND"},{"name":"ZCSDM","value":"ZCXSLC,TSXSLC","builder":"m_value_equal","linkOpt":"AND"}]'
+      responses:
+        "200":
+          description: 信封 datas.cxxtcs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowSettingEnvelope"
+              examples:
+                ok:
+                  value:
+                    code: "0"
+                    datas:
+                      cxxtcs:
+                        totalSize: 2
+                        rows:
+                          - CSDM: "XK"
+                            ZCSDM: "ZCXSLC"
+                            CSZA: "EXAMPLE_LCSL_1"
+                          - CSDM: "XK"
+                            ZCSDM: "TSXSLC"
+                            CSZA: "EXAMPLE_LCSL_2"
+
+  /jwapp/sys/mtxkbl/modules/mtsq/xscxtsmd.do:
+    post:
+      tags: [前置]
+      operationId: mtxkblSpecialStudents
+      summary: 查本人是否在特殊名单
+      description: |
+        action `xscxtsmd`。form 是 `XH` + `XNXQDM`。`rows` 非空说明是特殊学生，走 `TSXSLC` 流程；
+        空就走 `ZCXSLC`。行字段未核实（nju-cli 只看空不空）。
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [XH, XNXQDM]
+              properties:
+                XH:
+                  type: string
+                  example: "000000000"
+                XNXQDM:
+                  type: string
+                  example: "2025-2026-1"
+      responses:
+        "200":
+          description: 信封 datas.xscxtsmd
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpecialStudentEnvelope"
+              examples:
+                normal:
+                  summary: 不在名单（正常学生）
+                  value:
+                    code: "0"
+                    datas:
+                      xscxtsmd:
+                        totalSize: 0
+                        rows: []
+
+  /jwapp/sys/stateapp/{emapDir}/showprocess/T_GG_ZTJ_LCSL_QUERY.do:
+    post:
+      tags: [前置]
+      operationId: mtxkblFlowNextStatus
+      summary: 查流程下一状态代码
+      description: |
+        通用状态机应用 `stateapp`，不在 mtxkbl 目录下，但免修申请靠它拿初始状态。
+        action `T_GG_ZTJ_LCSL_QUERY`。`SLDM` 填上一步的 `CSZA`，`DQZTDM=0` 表示从头查。
+        `rows[0].XBZTDM`（下步状态代码）就是 `sqmtkc` 载荷里的 `ZTDM`。
+      parameters:
+        - $ref: "#/components/parameters/emapDir"
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [SLDM, DQZTDM]
+              properties:
+                SLDM:
+                  type: string
+                  description: 流程实例代码，来自 cxxtcs 的 CSZA。
+                  example: "EXAMPLE_LCSL_1"
+                DQZTDM:
+                  type: string
+                  description: 当前状态代码，查初始状态传 "0"。
+                  default: "0"
+      responses:
+        "200":
+          description: 信封 datas.T_GG_ZTJ_LCSL_QUERY
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FlowStatusEnvelope"
+              examples:
+                ok:
+                  value:
+                    code: "0"
+                    datas:
+                      T_GG_ZTJ_LCSL_QUERY:
+                        totalSize: 1
+                        rows:
+                          - XBZTDM: "1"
+
+  /jwapp/sys/mtxkbl/modules/mtsq/sqmtkc.do:
+    post:
+      tags: [提交]
+      operationId: mtxkblApply
+      summary: 提交免修不免考申请（写操作）
+      description: |
+        **这是写操作，会真的提交申请并进入教务审核流程，撤销要走线下 / 网页。
+        不要在 Playground 对生产环境点它。**
+
+        action `sqmtkc`。form 只有一个 `param`，值是 JSON **数组**字符串，每个元素一门课：
+
+        - `KCH` 课程号、`JXBID` 教学班、`XNXQDM` 学期：来自课表
+        - `KXH` 课序号：来自 `cxxkkc` 的 `rows[0].KXH`
+        - `ZTDM` 状态代码：来自 stateapp 返回的 `XBZTDM`，不能瞎填
+        - `SQYY` 申请原因：自由文本
+
+        成功时 `datas.sqmtkc.extParams.msg` 是申请回执（nju-cli 当申请单号用）。
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [param]
+              properties:
+                param:
+                  type: string
+                  description: JSON 数组字符串，见示例。
+            examples:
+              apply:
+                value:
+                  param: '[{"KCH":"00000000H","KXH":"001","XNXQDM":"2025-2026-1","JXBID":"2025-2026-1-00000000H-001","ZTDM":"1","SQYY":"已修读过同等内容课程，申请免修不免考。"}]'
+      responses:
+        "200":
+          description: 信封 datas.sqmtkc，回执在 extParams.msg。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplyResultEnvelope"
+              examples:
+                ok:
+                  value:
+                    code: "0"
+                    datas:
+                      sqmtkc:
+                        extParams:
+                          msg: "202600000000001"
+
+components:
+  parameters:
+    emapDir:
+      name: emapDir
+      in: path
+      required: true
+      description: 字面路径段 `*default`。星号是目录名的一部分，不是通配符。
+      schema:
+        type: string
+        enum: ["*default"]
+      example: "*default"
+  securitySchemes:
+    ehallCookies:
+      type: apiKey
+      in: cookie
+      name: CASTGC
+      description: 占位。真正请求需要 appShow 之后的 ehallapp 会话 cookie。见[登录](/auth)。
+  schemas:
+    ExemptionApplication:
+      type: object
+      additionalProperties: true
+      required: [KCH]
+      properties:
+        KCH:
+          type: string
+          description: 课程号
+        KCM:
+          type: [string, "null"]
+          description: 课程名
+        JXBID:
+          type: [string, "null"]
+          description: 教学班
+        SKJS:
+          type: [string, "null"]
+          description: 上课教师
+        YPSJDD:
+          type: [string, "null"]
+          description: 原排时间地点
+        XNXQDM:
+          type: [string, "null"]
+          description: 学年学期代码
+        SQYY:
+          type: [string, "null"]
+          description: 申请原因
+        ZTDM_DISPLAY:
+          type: [string, "null"]
+          description: 审核状态显示值
+        SHYJ:
+          type: [string, "null"]
+          description: 审核意见
+        SQSJ:
+          type: [string, "null"]
+          description: 申请时间
+    SelectedCourseRow:
+      type: object
+      additionalProperties: true
+      required: [KXH]
+      properties:
+        KXH:
+          type: string
+          description: 课序号，提交申请要用
+        KCH:
+          type: [string, "null"]
+        JXBID:
+          type: [string, "null"]
+        XH:
+          type: [string, "null"]
+        XNXQDM:
+          type: [string, "null"]
+    WorkflowSettingRow:
+      type: object
+      additionalProperties: true
+      required: [ZCSDM, CSZA]
+      properties:
+        CSDM:
+          type: [string, "null"]
+          description: 参数大类，这里固定 XK
+        ZCSDM:
+          type: string
+          description: 子参数代码，ZCXSLC 正常学生 / TSXSLC 特殊学生
+        CSZA:
+          type: string
+          description: 参数值，即流程实例代码，喂给 stateapp 的 SLDM
+    FlowStatusRow:
+      type: object
+      additionalProperties: true
+      required: [XBZTDM]
+      properties:
+        XBZTDM:
+          type: string
+          description: 下步状态代码，即 sqmtkc 载荷的 ZTDM
+    CheckAllowedResponse:
+      type: object
+      additionalProperties: true
+      properties:
+        data:
+          type: object
+          additionalProperties: true
+          properties:
+            code:
+              type: string
+              description: 字符串 "0" 表示可申请
+            msg:
+              type: [string, "null"]
+              description: 不可申请的原因
+        msg:
+          type: [string, "null"]
+    EhallPage:
+      type: object
+      properties:
+        totalSize:
+          type: integer
+        pageNumber:
+          type: integer
+        pageSize:
+          type: integer
+        rows:
+          type: array
+          items: {}
+        extParams: {}
+    ApplicationListEnvelope:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "0"
+        datas:
+          type: object
+          properties:
+            cxmtsq:
+              allOf:
+                - $ref: "#/components/schemas/EhallPage"
+                - type: object
+                  properties:
+                    rows:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/ExemptionApplication"
+    SelectedCourseEnvelope:
+      type: object
+      properties:
+        code:
+          type: string
+        datas:
+          type: object
+          properties:
+            cxxkkc:
+              allOf:
+                - $ref: "#/components/schemas/EhallPage"
+                - type: object
+                  properties:
+                    rows:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/SelectedCourseRow"
+    WorkflowSettingEnvelope:
+      type: object
+      properties:
+        code:
+          type: string
+        datas:
+          type: object
+          properties:
+            cxxtcs:
+              allOf:
+                - $ref: "#/components/schemas/EhallPage"
+                - type: object
+                  properties:
+                    rows:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/WorkflowSettingRow"
+    SpecialStudentEnvelope:
+      type: object
+      properties:
+        code:
+          type: string
+        datas:
+          type: object
+          properties:
+            xscxtsmd:
+              allOf:
+                - $ref: "#/components/schemas/EhallPage"
+                - type: object
+                  properties:
+                    rows:
+                      type: array
+                      items:
+                        type: object
+                        additionalProperties: true
+                      description: 行字段未核实，只用来判断空不空。
+    FlowStatusEnvelope:
+      type: object
+      properties:
+        code:
+          type: string
+        datas:
+          type: object
+          properties:
+            T_GG_ZTJ_LCSL_QUERY:
+              allOf:
+                - $ref: "#/components/schemas/EhallPage"
+                - type: object
+                  properties:
+                    rows:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/FlowStatusRow"
+    ApplyResultEnvelope:
+      type: object
+      properties:
+        code:
+          type: string
+          description: 顶层 "0" 才算提交成功
+        datas:
+          type: object
+          properties:
+            sqmtkc:
+              type: object
+              additionalProperties: true
+              properties:
+                extParams:
+                  type: object
+                  additionalProperties: true
+                  properties:
+                    msg:
+                      type: [string, "null"]
+                      description: 申请回执 / 单号

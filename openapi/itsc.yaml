@@ -1,0 +1,227 @@
+openapi: 3.1.0
+info:
+  title: 信息化 itsc
+  version: "0.1.0"
+  summary: 信息化建设管理服务中心门户的 HTML 抓取，支持递归抓子页。非官方，会变。
+  description: |
+    itsc.nju.edu.cn 是 WebPlus 门户站，公开访问，无需登录。两个入口栏目
+    （完整清单见 `x-columns`）：服务说明 `21426`、正版软件安装教程 `zbrj`。
+
+    和研招、团委的新闻列表不同，这两个栏目页以导航为主：左侧菜单
+    `.col_menu_con a[href]` 列子栏目，正文 `.wp_articlecontent a[href]`、
+    `.col_news_con a[href]` 里还会链到大量子教程页。抓法是从入口页 BFS：
+    非递归只跟左侧菜单；递归时把正文里的链接也跟上（适合正版软件这种子页多的栏目）。
+    只收本域（含 WebVPN 映射域 `itsc-nju-edu-cn.atrust.nju.edu.cn`）、路径以
+    `/list.htm` 或 `/page.htm` 结尾的链接，URL 去掉 fragment 后去重。
+
+    页面类型按 URL 分：`/page.htm` 结尾是文章，其余是栏目。页面 ID 优先从内嵌的
+    `img[src*="_visitcount"]` 的查询参数 `columnId` / `articleId` 提取，取不到再从
+    URL 推（`<id>/list.htm`、`a<id>/page.htm`），最后退化成 URL 哈希。
+
+    栏目页按 WebPlus 通例应该也有 `list<N>.htm` 翻页，但这两个栏目以菜单导航为主，
+    逆向实现没用到翻页。
+  x-source: https://itsc.nju.edu.cn
+  x-captured: "2026-08-24"
+  x-columns:
+    - path: "21426"
+      title: 信息化中心服务说明
+      url: https://itsc.nju.edu.cn/21426/list.htm
+    - path: "zbrj"
+      title: 正版软件安装教程
+      url: https://itsc.nju.edu.cn/zbrj/list.htm
+
+servers:
+  - url: https://itsc.nju.edu.cn
+    description: 信息化建设管理服务中心，公开访问
+  - url: https://itsc-nju-edu-cn.atrust.nju.edu.cn
+    description: WebVPN（aTrust）映射域，校外走 VPN 时的同构地址
+
+tags:
+  - name: 栏目入口
+  - name: 子页与正文
+  - name: 辅助
+
+paths:
+  /21426/list.htm:
+    get:
+      tags: [栏目入口]
+      operationId: itscServices
+      summary: 信息化中心服务说明
+      description: 服务说明栏目入口页，左侧菜单列出各项服务的子栏目。
+      responses:
+        "200":
+          $ref: "#/components/responses/ColumnHtml"
+
+  /zbrj/list.htm:
+    get:
+      tags: [栏目入口]
+      operationId: itscLicensedSoftware
+      summary: 正版软件安装教程
+      description: 正版软件栏目入口页，正文里链到各软件的安装教程子页，适合递归抓。
+      responses:
+        "200":
+          $ref: "#/components/responses/ColumnHtml"
+
+  /{column}/list.htm:
+    get:
+      tags: [子页与正文]
+      operationId: itscSubColumnList
+      summary: 任意子栏目页
+      description: |
+        BFS 途中发现的子栏目页，路径从菜单或正文 href 里来（如 `/Office/list.htm`），
+        结构和入口页相同。栏目 ID 从页面内嵌 `img[src*="_visitcount"]` 的
+        `columnId` 参数取，或直接用路径里的数字。
+      parameters:
+        - $ref: "#/components/parameters/column"
+      responses:
+        "200":
+          $ref: "#/components/responses/ColumnHtml"
+        "404":
+          description: 子栏目不存在。
+
+  /{hashA}/{hashB}/{articleKey}/page.htm:
+    get:
+      tags: [子页与正文]
+      operationId: itscReadPage
+      summary: 读文章正文页
+      description: |
+        凡以 `/page.htm` 结尾的都按文章页处理，URL 从栏目页或正文链接原样取，
+        路径形状以实际 href 为准。文章 ID 从 `img[src*="_visitcount"]` 的
+        `articleId` 参数取，或从 URL 里 `a<id>/page.htm` 段推。
+      parameters:
+        - $ref: "#/components/parameters/hashA"
+        - $ref: "#/components/parameters/hashB"
+        - $ref: "#/components/parameters/articleKey"
+      responses:
+        "200":
+          $ref: "#/components/responses/PageHtml"
+        "404":
+          description: 文章不存在或已撤下。
+
+  /_visitcount:
+    get:
+      tags: [辅助]
+      operationId: itscVisitCount
+      summary: 访问计数打点（借它拿栏目/文章 ID）
+      description: |
+        WebPlus 的计数打点，页面里以
+        `<img src="/_visitcount?siteId=302&type=2&columnId=12345">` 内嵌。
+        逆向实现并不请求它——只从 `img` 的 `src` 查询参数里读 `columnId` /
+        `articleId` 当页面 ID 用。响应体内容未核实。
+      parameters:
+        - name: siteId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: WebPlus 站点 ID，itsc 站是 `302`。
+          example: "302"
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+          description: 打点类型，栏目页样例里是 `2`。
+          example: "2"
+        - name: columnId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: 栏目 ID，栏目页带它（与 `articleId` 二选一）。
+          example: "12345"
+        - name: articleId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: 文章 ID，文章页带它（与 `columnId` 二选一）。
+      responses:
+        "200":
+          description: 计数打点响应。逆向实现不消费响应体，内容未核实。
+
+components:
+  parameters:
+    column:
+      name: column
+      in: path
+      required: true
+      description: 子栏目路径段，从菜单或正文 href 里来，也可以是入口栏目 `21426` / `zbrj`。
+      schema:
+        type: string
+      example: "Office"
+    hashA:
+      name: hashA
+      in: path
+      required: true
+      description: 文章 URL 的第一级散列目录，从页面 href 取。
+      schema:
+        type: string
+      example: "xx"
+    hashB:
+      name: hashB
+      in: path
+      required: true
+      description: 文章 URL 的第二级散列目录，从页面 href 取。
+      schema:
+        type: string
+      example: "xx"
+    articleKey:
+      name: articleKey
+      in: path
+      required: true
+      description: 文章路径段（常见形如 `c<栏目ID>a<文章ID>`），从页面 href 原样取。
+      schema:
+        type: string
+      example: "c12345a67890"
+
+  responses:
+    ColumnHtml:
+      description: |
+        WebPlus 栏目页 HTML。解析要点：
+
+        - 页面标题：`.col_title h2, .arti_title, title` 里第一个非空
+        - 子栏目链接：左侧菜单 `.col_menu_con a[href]`
+        - 正文里的子页链接：`.wp_articlecontent a[href], .col_news_con a[href]`
+          （递归抓取时才跟）
+        - 链接过滤：只留本域、以 `/list.htm` 或 `/page.htm` 结尾的，去掉 fragment 去重
+        - 栏目 ID：`img[src*="_visitcount"]` 的 `src` 查询参数 `columnId`
+
+        代表性结构（示例已脱敏）：
+
+        ```html
+        <div class="col_title"><h2>示例栏目标题</h2></div>
+        <img src="/_visitcount?siteId=302&type=2&columnId=12345" />
+        <div class="col_menu_con">
+          <a href="/xxxx/list.htm">示例子栏目</a>
+        </div>
+        <div class="wp_articlecontent">
+          <a href="/xxxx/list.htm">示例教程入口</a>
+          <a href="/xx/xx/c12345a67890/page.htm">示例教程文章</a>
+        </div>
+        ```
+      content:
+        text/html:
+          schema:
+            type: string
+    PageHtml:
+      description: |
+        文章页 HTML。解析要点：
+
+        - 标题：`.col_title h2, .arti_title, title` 里第一个非空
+        - 正文：`.wp_articlecontent, .article, .col_news_con` 里第一个命中，都没有就用整页
+        - 文章 ID：`img[src*="_visitcount"]` 的 `src` 查询参数 `articleId`
+
+        代表性结构（示例已脱敏）：
+
+        ```html
+        <h1 class="arti_title">示例教程标题</h1>
+        <img src="/_visitcount?siteId=302&articleId=67890" />
+        <div class="wp_articlecontent">
+          <p>安装步骤……</p>
+        </div>
+        ```
+      content:
+        text/html:
+          schema:
+            type: string

@@ -1,0 +1,227 @@
+openapi: 3.1.0
+info:
+  title: 科研院 scit
+  version: "0.1.0"
+  summary: scit.nju.edu.cn 公开官网的抓取接口。无需登录，非官方，会变。
+  description: |
+    科学技术研究院官网也是 WebPlus CMS，页面公开，不用登录。列表同样走
+    `POST /_wp3services/generalQuery?queryObj=articles`，请求体和教务网同构，站点号 `siteId=327`。
+
+    栏目号大多就是列表页路径段（全数字直接当 `columnId` 用）：
+
+    - 通知公告 `10916`、科研动态 `11003`
+    - 机构设置 `10915`：院领导 `11179`、综合办 `11180`、纵向项目办 `11181`、科研平台办 `11182`、成果奖励办 `11183`、产业合作办 `11184`、专项科研办 `11185`、苏州校区办 `11186`
+    - 政策法规 `10917`：项目 `10935`、成果 `10936`、平台 `10939`、合同 `10941`、其他 `10944`
+    - 工作流程 `10918`：项目 `10952`、成果 `10953`、平台 `10956`、合同 `10958`、其他 `10961`
+    - 相关下载 `10924`：项目 `10962`、成果 `10963`、平台 `10966`、合同 `10968`、其他 `10971`
+    - 科研项目 `10921`：国自然 `10946`、科技部 `10945`、教育部 `10947`、基本科研业务费 `10948`、江苏省 `10949`、横向 `10950`、其他 `10951`
+    - 科研平台 `10922`、科技成果 `10923`（奖励 `10972`、论文 `10973`、知识产权 `10974`）、学风建设 `10925`（政策文件 `10982`、年度报告 `10984`、先进事迹 `10985`）
+
+    少数栏目路径不是数字：公示信息 `cs_39328`、AI4S 专栏 `AI`，以及科研平台子栏目 `gjzdsys`（国家级）、`jybzdsys`（教育部）、`jsszdsys`（江苏省）、`gczx`（其他部委）、`qtpt`（校级）、`xqcxyhzjg`（校企产学研）、`xtcxzx`（平台工作通知）。这些先抓 `/{路径}/list.htm`，从 `_visitcount` 计数图解出真实栏目号，再回 generalQuery。
+
+    正文没有 JSON 接口，抓 `.htm` 页解析 HTML。
+  x-source: https://scit.nju.edu.cn
+  x-captured: "2026-08-24"
+  x-siteId: "327"
+
+servers:
+  - url: https://scit.nju.edu.cn
+    description: 科研院官网，公开抓取
+
+tags:
+  - name: 文章
+  - name: 栏目
+  - name: 正文
+
+paths:
+  /_wp3services/generalQuery:
+    post:
+      tags: [文章]
+      operationId: scitListArticles
+      summary: 栏目文章分页
+      description: |
+        WebPlus 通用查询，和教务网同一套。`queryObj=articles` 挂在 query 上，其余全在 form 里：
+
+        - `siteId`：固定 `327`
+        - `columnId`：栏目号，见文件开头清单；非数字路径的栏目先抓列表页解出来
+        - `pageIndex`：页码，从 1 起
+        - `rows`：每页条数
+        - `orders`：排序，JSON 数组字符串。网页默认置顶、new 标、发布时间三级倒序
+        - `returnInfos`：要哪些字段，JSON 数组字符串。`pattern` 里 `lp` 是标题截断字数（超出变省略号），`d` 是日期格式。科研院各栏目都用 title、publishTime、link 这一版
+
+        翻页翻到 `data` 累计条数够 `total`，或者返回空页为止。
+      parameters:
+        - name: queryObj
+          in: query
+          required: true
+          description: 查询对象，文章列表固定 articles。
+          schema:
+            type: string
+            enum: [articles]
+          example: articles
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/GeneralQueryForm"
+            example:
+              siteId: "327"
+              columnId: "10916"
+              pageIndex: 1
+              rows: 100
+              orders: '[{"field":"top","type":"desc"},{"field":"new","type":"desc"},{"field":"publishTime","type":"desc"}]'
+              returnInfos: '[{"field":"title","pattern":[{"name":"lp","value":"999"}],"name":"title"},{"field":"publishTime","pattern":[{"name":"d","value":"yyyy-MM-dd"}],"name":"publishTime"},{"field":"link","name":"link"}]'
+      responses:
+        "200":
+          description: 文章列表信封。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArticlePage"
+              example:
+                status: 1
+                result: success
+                total: 42
+                data:
+                  - id: 654321
+                    title: 示例科研通知标题
+                    publishTime: "2026-01-01"
+                    url: /2026/0101/c10916a654321/page.htm
+                    wapUrl: null
+                    trueWapUrl: null
+                    publisher: null
+                    publisherId: null
+                    visitCount: 88
+                    mircImgPath: null
+                    siteArtId: 654321
+
+  /{listPath}/list.htm:
+    get:
+      tags: [栏目]
+      operationId: scitColumnPage
+      summary: 栏目列表页（解 columnId 用）
+      description: |
+        栏目路径全数字时不用抓这页，路径段本身就是 columnId。非数字路径的栏目（公示信息 `cs_39328`、AI4S 专栏 `AI`、科研平台子栏目 `gjzdsys` 等）先抓这页 HTML，找 `img[src*="_visitcount"]` 计数图，src 形如 `/_visitcount?siteId=327&type=2&columnId=11172`，取其中 `columnId` 参数，再回 generalQuery。
+      parameters:
+        - name: listPath
+          in: path
+          required: true
+          description: 栏目列表页路径段。
+          schema:
+            type: string
+          example: cs_39328
+      responses:
+        "200":
+          description: 栏目列表页 HTML。
+          content:
+            text/html:
+              schema:
+                type: string
+              example: '<img src="/_visitcount?siteId=327&type=2&columnId=11172" />'
+
+  /{articlePath}:
+    get:
+      tags: [正文]
+      operationId: scitReadArticle
+      summary: 文章正文页
+      description: |
+        `articlePath` 填列表返回的 `url`（可含斜杠；链接统一按 https 抓、去掉 fragment）。返回 HTML，转 Markdown 的解析点：
+
+        - 标题：`.arti_title`、`.col_title h2`、`title`
+        - 正文容器：`.wp_articlecontent`、`.article`、`.col_news_con`
+        - 内嵌 PDF：`.wp_pdf_player` 的 `pdfsrc` 属性，或播放器 iframe `src` 里的 `file` 查询参数
+      parameters:
+        - name: articlePath
+          in: path
+          required: true
+          description: 列表返回的文章相对路径，可含斜杠。
+          schema:
+            type: string
+          example: 2026/0101/c10916a654321/page.htm
+      responses:
+        "200":
+          description: 文章页 HTML。
+          content:
+            text/html:
+              schema:
+                type: string
+              example: '<h1 class="arti_title">示例科研通知标题</h1><div class="wp_articlecontent"><p>正文</p></div>'
+
+components:
+  schemas:
+    GeneralQueryForm:
+      type: object
+      required: [siteId, columnId, pageIndex, rows, orders, returnInfos]
+      properties:
+        siteId:
+          type: string
+          description: WebPlus 站点号，科研院固定 "327"。
+        columnId:
+          type: string
+          description: 栏目号，见文件开头清单。
+        pageIndex:
+          type: integer
+          description: 页码，从 1 起。
+        rows:
+          type: integer
+          description: 每页条数。
+        orders:
+          type: string
+          description: 排序规则，JSON 数组字符串，元素带 field 和 type（asc/desc）。
+        returnInfos:
+          type: string
+          description: 返回字段映射，JSON 数组字符串，元素带 field、name，可选 pattern（lp 截断标题、d 日期格式）。
+    ArticlePage:
+      type: object
+      required: [status, result]
+      properties:
+        status:
+          type: integer
+          description: 状态码。
+        result:
+          type: string
+          description: 结果说明字符串。
+        total:
+          type: integer
+          description: 栏目文章总数，翻页拿它判断是否到底。个别栏目/异常时可能缺失，按 0 处理。
+        data:
+          type: array
+          description: 当前页文章。可能缺失，按空数组处理。
+          items:
+            $ref: "#/components/schemas/Article"
+    Article:
+      type: object
+      additionalProperties: true
+      required: [id, title]
+      properties:
+        id:
+          type: integer
+          description: 文章 ID。
+        title:
+          type: string
+          description: 标题，按 returnInfos 的 lp 截断。
+        publishTime:
+          type: string
+          description: 发布日期，格式由 returnInfos 的 d 决定，一般 yyyy-MM-dd。可能缺失。
+        url:
+          type: string
+          description: 文章链接。抓取时统一改成 https、去掉 fragment。可能缺失。
+        wapUrl:
+          type: [string, "null"]
+        trueWapUrl:
+          type: [string, "null"]
+        publisher:
+          type: [string, "null"]
+          description: 发布人/单位。
+        publisherId:
+          type: [integer, "null"]
+        visitCount:
+          type: [integer, "null"]
+          description: 浏览量。
+        mircImgPath:
+          type: [string, "null"]
+          description: 缩略图路径。
+        siteArtId:
+          type: [integer, "null"]
+          description: 站内文章 ID。

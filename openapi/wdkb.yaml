@@ -6,7 +6,7 @@ info:
   description: |
     非官方。服务大厅「我的课表」。
 
-    只收查询接口。免修不免考在另一个应用 `mtxkbl`，写接口不收录。
+    只收查询接口。免修不免考在另一个应用 `mtxkbl`，已单独收录（含写接口）。
 
     `appShow` 见 [登录](/auth)，本文件不重复该路径。
   x-source: https://ehallapp.nju.edu.cn/jwapp/sys/wdkb

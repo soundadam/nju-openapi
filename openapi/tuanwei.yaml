@@ -1,0 +1,195 @@
+openapi: 3.1.0
+info:
+  title: 团委 tuanwei
+  version: "0.1.0"
+  summary: 南京大学团委门户公开栏目的列表页与文章页 HTML 抓取。非官方，会变。
+  description: |
+    tuanwei.nju.edu.cn 是 WebPlus 门户站，公开访问，无需登录。列表页
+    `/<栏目路径>/list.htm`，第 2 页起 `list<N>.htm`（第 1 页就是 `list.htm`）。
+    条目在 `ul.news_list li.news`：标题 `.news_title a`（优先 `title` 属性）、
+    日期 `.news_meta`，和研招网同一套结构。
+
+    只有两个栏目（完整清单见 `x-columns`）：最新动态 `24480`、公告通知 `ggtz`。
+
+    注意 href 里的数字栏目 ID 和列表路径别名不一定一样：`ggtz` 列表下的文章 URL
+    形如 `/xx/xx/c24691a12345/page.htm`，`c` 后才是真实栏目 ID。文章 URL 一律从
+    列表页 href 原样取，别自己拼。
+  x-source: https://tuanwei.nju.edu.cn
+  x-captured: "2026-08-24"
+  x-columns:
+    - path: "24480"
+      title: 最新动态
+      url: https://tuanwei.nju.edu.cn/24480/list.htm
+    - path: "ggtz"
+      title: 公告通知
+      url: https://tuanwei.nju.edu.cn/ggtz/list.htm
+
+servers:
+  - url: https://tuanwei.nju.edu.cn
+    description: 校团委门户，公开访问
+
+tags:
+  - name: 列表
+  - name: 正文
+
+paths:
+  /24480/list.htm:
+    get:
+      tags: [列表]
+      operationId: tuanweiLatestDynamics
+      summary: 最新动态
+      description: 团委工作动态、活动报道列表首页。
+      responses:
+        "200":
+          $ref: "#/components/responses/NewsListHtml"
+
+  /ggtz/list.htm:
+    get:
+      tags: [列表]
+      operationId: tuanweiAnnouncements
+      summary: 公告通知
+      description: 通知、评选公示类文章列表首页。栏目路径是别名 `ggtz`，文章 href 里的真实栏目 ID 是数字。
+      responses:
+        "200":
+          $ref: "#/components/responses/NewsListHtml"
+
+  /{column}/list{page}.htm:
+    get:
+      tags: [列表]
+      operationId: tuanweiColumnListPage
+      summary: 栏目列表翻页
+      description: |
+        第 2 页起用 `list<N>.htm`；第 1 页就是 `list.htm`。
+        先抓首页读 `.pages .all_pages` 的总页数再翻，不要盲翻。
+      parameters:
+        - $ref: "#/components/parameters/column"
+        - $ref: "#/components/parameters/page"
+      responses:
+        "200":
+          $ref: "#/components/responses/NewsListHtml"
+        "404":
+          description: 栏目不存在或页码越界。
+
+  /{hashA}/{hashB}/{articleKey}/page.htm:
+    get:
+      tags: [正文]
+      operationId: tuanweiReadArticle
+      summary: 读文章正文页
+      description: |
+        URL 从列表页 href 原样取：`{hashA}/{hashB}` 是两级散列目录，
+        `{articleKey}` 形如 `c24691a12345`——`c` 后是栏目数字 ID，`a` 后是文章 ID
+        （可当稳定主键用）。
+      parameters:
+        - $ref: "#/components/parameters/hashA"
+        - $ref: "#/components/parameters/hashB"
+        - $ref: "#/components/parameters/articleKey"
+      responses:
+        "200":
+          $ref: "#/components/responses/ArticleHtml"
+        "404":
+          description: 文章不存在或已撤下。
+
+components:
+  parameters:
+    column:
+      name: column
+      in: path
+      required: true
+      description: 栏目路径，见 info 的 `x-columns`。
+      schema:
+        type: string
+        enum:
+          - "24480"
+          - "ggtz"
+      example: "ggtz"
+    page:
+      name: page
+      in: path
+      required: true
+      description: 页码，从 2 起；第 1 页直接访问 `list.htm`。
+      schema:
+        type: integer
+        minimum: 2
+      example: 2
+    hashA:
+      name: hashA
+      in: path
+      required: true
+      description: 文章 URL 的第一级散列目录，从列表页 href 取。
+      schema:
+        type: string
+      example: "xx"
+    hashB:
+      name: hashB
+      in: path
+      required: true
+      description: 文章 URL 的第二级散列目录，从列表页 href 取。
+      schema:
+        type: string
+      example: "xx"
+    articleKey:
+      name: articleKey
+      in: path
+      required: true
+      description: 形如 `c<栏目ID>a<文章ID>`，从列表页 href 取。
+      schema:
+        type: string
+      example: "c24691a12345"
+
+  responses:
+    NewsListHtml:
+      description: |
+        WebPlus 列表页 HTML。解析要点：
+
+        - 条目：`ul.news_list li.news`
+        - 标题：`.news_title a`，优先取 `title` 属性（链接文本可能被截断）
+        - 链接：同一个 `a` 的 `href`，相对路径，按当前页 URL join
+        - 日期：`.news_meta`，格式 `YYYY-MM-DD`
+        - 分页：`.per_count` 每页条数、`em.all_count` 总条数、`.pages .all_pages`
+          总页数（当前页在 `em.curr_page`）
+        - 文章 ID：href 里 `c<栏目ID>a<文章ID>` 段的 `a` 后数字
+
+        代表性结构（示例已脱敏）：
+
+        ```html
+        <ul class="news_list">
+          <li class="news clearfix">
+            <span class="news_title">
+              <a href="/xx/xx/c24691a12345/page.htm" title="示例通知标题">示例通知标题</a>
+            </span>
+            <span class="news_meta">2026-01-01</span>
+          </li>
+        </ul>
+        <span class="per_page">每页 <em class="per_count">14</em> 记录</span>
+        <span class="all_count">总共 <em class="all_count">99</em> 记录</span>
+        <span class="pages">页码 <em class="curr_page">1</em>/<em class="all_pages">8</em></span>
+        ```
+      content:
+        text/html:
+          schema:
+            type: string
+    ArticleHtml:
+      description: |
+        文章页 HTML。解析要点：
+
+        - 正文容器：`.article`，取不到就用整页
+        - 内嵌 PDF：`.wp_pdf_player`——附件地址在 `pdfsrc` 属性；`iframe` 的 `src`
+          指向 pdfjs viewer 时，取其 `file` 查询参数
+
+        代表性结构（示例已脱敏）：
+
+        ```html
+        <div class="article">
+          <h1 class="arti_title">示例通知标题</h1>
+          <div class="wp_articlecontent">
+            <p>正文……</p>
+            <iframe class="wp_pdf_player"
+              src="/_js/_portletPlugs/swfPlayer/pdfjs/web/viewer.html?file=/_upload/article/files/xx/xx/example.pdf"></iframe>
+            <span class="wp_pdf_player" pdfsrc="/_upload/article/files/xx/xx/example2.pdf"></span>
+          </div>
+        </div>
+        ```
+      content:
+        text/html:
+          schema:
+            type: string

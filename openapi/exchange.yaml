@@ -1,0 +1,246 @@
+openapi: 3.1.0
+info:
+  title: 交换生 exchange
+  version: "0.1.0"
+  summary: 南大交换生系统的项目与通知列表接口。非官方，会变。
+  description: |
+    非官方。交换生系统（elite.nju.edu.cn）首页的「更多」列表接口：
+    出国（境）交流项目列表 + 新闻通知列表（录取名单公示也发在通知里）。
+
+    两个接口都必须带查询参数 `.me=c3lzLmluZGV4`（base64，解出来是 `sys.index`）。
+    站点只有明文 **http**，没有 https。
+
+    nju-cli 把这套命令挂在需统一认证登录的模式下，但接口本身未登录也能取到
+    （crate 单测就是拿未登录的裸客户端打通的），所以本文件不设 security。
+
+    `nr` / `xmms` 是 HTML 片段，里面的相对链接要按
+    `http://elite.nju.edu.cn/exchangesystem/index/` 补全才能打开。
+    分页响应顶层的 `code` 是**数字**，别跟 ehall 系的字符串 `"0"` 搞混。
+  x-source: http://elite.nju.edu.cn/exchangesystem
+  x-captured: "2026-08-24"
+servers:
+  - url: http://elite.nju.edu.cn
+    description: 交换生系统，明文 http
+tags:
+  - name: 通知
+  - name: 项目
+paths:
+  /exchangesystem/index/moreList:
+    get:
+      tags: [通知]
+      operationId: exchangeListNotices
+      summary: 新闻通知分页
+      description: |
+        首页「新闻通知」的更多列表。公示拟录取名单、报名通知都发在这里。
+        `nr` 是正文 HTML；`fj` / `fjmc` 是附件相对路径和名称。
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/me"
+      responses:
+        "200":
+          description: 通知分页，行在 `data`。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NoticePage"
+              examples:
+                ok:
+                  value:
+                    code: 0
+                    msg: null
+                    pageIndex: 1
+                    pageSize: 20
+                    totalPages: 1
+                    count: 1
+                    success: true
+                    data:
+                      - pid: 1001
+                        bt: "关于公示示例交流项目拟录取名单的通知"
+                        nr: "<p>示例正文，含拟录取名单。</p>"
+                        createDate: "2026-08-01"
+                        createBy: "示例发布单位"
+                        fj: "upload/example.xlsx"
+                        fjmc: "示例附件.xlsx"
+                        sfzd: false
+
+  /exchangesystem/index/moreXmList:
+    get:
+      tags: [项目]
+      operationId: exchangeListProjects
+      summary: 交流项目分页
+      description: |
+        首页「项目」的更多列表。`xmms` 是项目描述 HTML，`sqyq` 是申请要求链接，
+        `bmjzsj` 是报名截止时间。
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/me"
+      responses:
+        "200":
+          description: 项目分页，行在 `data`。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectPage"
+              examples:
+                ok:
+                  value:
+                    code: 0
+                    msg: null
+                    pageIndex: 1
+                    pageSize: 20
+                    totalPages: 1
+                    count: 1
+                    success: true
+                    data:
+                      - pid: 2001
+                        mc: "示例大学交换项目"
+                        jlsj: "2027年春季学期"
+                        bmjzsj: "2026-09-15"
+                        sqyq: "http://elite.nju.edu.cn/exchangesystem/upload/example.pdf"
+                        xmms: "<p>示例项目描述。</p>"
+                        bz: "示例备注"
+                        fj: null
+                        fjmc: null
+                        sfzd: true
+
+components:
+  parameters:
+    page:
+      name: page
+      in: query
+      required: true
+      description: 页码，从 1 开始。
+      schema:
+        type: integer
+        default: 1
+      example: 1
+    limit:
+      name: limit
+      in: query
+      required: true
+      description: 每页条数。
+      schema:
+        type: integer
+        default: 20
+      example: 20
+    me:
+      name: ".me"
+      in: query
+      required: true
+      description: 固定 `c3lzLmluZGV4`，base64 解出来是 `sys.index`。少了拿不到数据。
+      schema:
+        type: string
+        default: "c3lzLmluZGV4"
+      example: "c3lzLmluZGV4"
+
+  schemas:
+    ExchangePage:
+      type: object
+      required: [code, pageIndex, pageSize, totalPages, count, data]
+      properties:
+        code:
+          type: integer
+          description: 业务码，数字。正常返回时为 0。
+          example: 0
+        msg:
+          type: [string, "null"]
+        pageIndex:
+          type: integer
+          description: 当前页码，从 1 开始
+        pageSize:
+          type: integer
+        totalPages:
+          type: integer
+          description: 总页数
+        count:
+          type: integer
+          description: 总条数
+        data:
+          type: array
+          items: {}
+        success:
+          type: [boolean, "null"]
+    Notice:
+      type: object
+      additionalProperties: true
+      required: [pid, bt, nr]
+      properties:
+        pid:
+          type: integer
+          description: 通知 ID
+        bt:
+          type: string
+          description: 标题
+        nr:
+          type: string
+          description: 正文 HTML，相对链接按 `/exchangesystem/index/` 补全
+        createDate:
+          type: [string, "null"]
+          description: 发布时间
+        createBy:
+          type: [string, "null"]
+          description: 发布人 / 单位
+        fj:
+          type: [string, "null"]
+          description: 附件相对路径
+        fjmc:
+          type: [string, "null"]
+          description: 附件名称
+        sfzd:
+          type: [boolean, "null"]
+          description: 是否置顶
+    Project:
+      type: object
+      additionalProperties: true
+      required: [pid, mc]
+      properties:
+        pid:
+          type: integer
+          description: 项目 ID
+        mc:
+          type: string
+          description: 项目名称
+        jlsj:
+          type: [string, "null"]
+          description: 交流时间
+        bmjzsj:
+          type: [string, "null"]
+          description: 报名截止时间
+        sqyq:
+          type: [string, "null"]
+          description: 申请要求链接
+        xmms:
+          type: [string, "null"]
+          description: 项目描述 HTML
+        bz:
+          type: [string, "null"]
+          description: 备注
+        fj:
+          type: [string, "null"]
+          description: 附件相对路径
+        fjmc:
+          type: [string, "null"]
+          description: 附件名称
+        sfzd:
+          type: [boolean, "null"]
+          description: 是否置顶
+    NoticePage:
+      allOf:
+        - $ref: "#/components/schemas/ExchangePage"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/Notice"
+    ProjectPage:
+      allOf:
+        - $ref: "#/components/schemas/ExchangePage"
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: "#/components/schemas/Project"

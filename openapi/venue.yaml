@@ -1,0 +1,1340 @@
+openapi: 3.1.0
+info:
+  title: 体育场馆 venue
+  version: "0.1.0"
+  summary: 南京大学体育场馆预约系统的逆向接口。非官方，会变。
+  description: |
+    非官方，逆向自体育场馆预约（`ggtypt.nju.edu.cn/venue-server`）。会变。请求就是 curl。
+
+    响应统一信封 `{ code, data, message, messageEn }`，`code == 200` 才是成功，业务数据在 `data` 里。
+
+    ## 认证：三步换 token
+    1. `GET authserver.nju.edu.cn/authserver/login?service=https://ggtypt.nju.edu.cn/venue-server/sso/manageLogin`。
+       带统一认证 `CASTGC` 会话时，302 回跳到 `manageLogin`，跟完跳转后最终 URL 的 query 里带 `oauth_token`。
+    2. `POST /venue-server/api/login`，请求头 `oauth-token: <上一步的 oauth_token>`，空表单。
+       返回 `data.token.access_token`（业务 token）和 `data.roles`。
+    3. 有角色就再 `POST /venue-server/roleLogin`，请求头 `cgAuthorization: <access_token>`，表单 `roleid=<roles[0].id>`，
+       拿到换过角色的新 `access_token`。没有角色就直接用第 2 步的 token。
+
+    之后所有业务请求都带 `cgAuthorization: <access_token>`。
+
+    ## 请求签名（除 SSO 那一步外，每个请求都要）
+    四个头一起发：`cgAuthorization`、`app-key`、`timestamp`、`sign`。
+
+    - `app-key` 固定 `8fceb735082b5a529312040b58ea780b`。
+    - `timestamp` 是毫秒时间戳。**GET 请求还要把同一个值作为查询参数 `nocache` 再带一遍。**
+    - `sign = md5(SIGN_SECRET + path + 参数 + timestamp + " " + SIGN_SECRET)`，取小写十六进制。细节：
+      - `SIGN_SECRET = c640ca392cd45fb3a55b00a63a86c618`，拼在最前面，也拼在最后（最后是一个空格 + secret，注意那个空格）。
+      - `path` 是**去掉 `/venue-server` 前缀**后的路径，比如 `/api/reservation/day/info`、`/roleLogin`，
+        不是 `/venue-server/api/...`。本文档 server 是 `https://ggtypt.nju.edu.cn`，所以文档里的路径带 `/venue-server`，签名时要砍掉。
+      - 参数：GET 取查询参数（含 `nocache`），POST 取表单字段。先丢掉空值（空字符串不算），字符串先 trim，
+        再按 key 升序排序，然后把 `key` 和 `value` 直接首尾拼接（**没有任何分隔符**）。数组 / 对象 / null 不参与。
+      - 例：`GET /api/reservation/day/info?venueSiteId=10001&searchDate=2026-08-25&hasReserveInfo=1&nocache=<ts>`，
+        签名明文 = `SIGN_SECRET` + `/api/reservation/day/info` + `hasReserveInfo1` + `nocache<ts>` +
+        `searchDate2026-08-25` + `venueSiteId10001` + `<ts>` + ` ` + `SIGN_SECRET`。
+
+    ## 验证码：点选文字（aj-captcha）
+    提交预约前要过一次“按提示顺序点字”的验证码：
+
+    1. `GET /venue-server/api/captcha/get?captchaType=clickWord&clientUid=<任意串>`，`data.repData` 里有：
+       `token`、`secretKey`（16 字节 AES key）、`originalImageBase64`（题图）、`wordList`（要依次点的字）。
+    2. 本地 OCR 出每个字的中心坐标，拼成 `pointsJson`，如 `[{"x":93,"y":56},{"x":160,"y":80},{"x":230,"y":72}]`。
+    3. `POST /venue-server/api/captcha/check`，表单 `captchaType=clickWord`、`token`、`pointJson`。
+       `pointJson` = **AES-ECB**(pointsJson)：AES-128-ECB、PKCS7 填充、key = `secretKey`、输出 Base64。`repCode == "0000"` 才算过。
+    4. 提交订单时带 `captchaToken` 和 `captchaVerification`。
+       `captchaToken` = 上面的 `token`；
+       `captchaVerification` = **AES-ECB**(`<token>---<pointsJson>`)，用同一把 `secretKey`，同样 AES-128-ECB / PKCS7 / Base64。
+       （拼接串是 token、三个连字符 `---`、pointsJson。没有 secretKey 时就是明文，正常流程都有。）
+
+    另外提交订单还要一个 `orderPin` = **AES-CBC**：明文是 `"<clientX>,<clientY>"`（前端点击坐标，脚本默认 `0,0`），
+    AES-128-CBC、PKCS7、key = `c1h2i5n6g2o2k4a7`、iv = `C2H3I4N5G2O3K1E4`（都是固定值、16 字节），输出**小写十六进制**。
+
+    ## token 都从哪来
+    - 业务 token（`cgAuthorization`）：`api/login` → `roleLogin`。
+    - 预约用的 `token`：预约状态接口 `api/reservation/day/info` 响应里的 `token`，`order/info` 和 `order/submit` 要原样回传。
+    - 验证码 `captchaToken`：`captcha/get` 的 `repData.token`。
+  x-source: https://ggtypt.nju.edu.cn/venue-server
+  x-captured: "2026-08-24"
+  x-appKey: "8fceb735082b5a529312040b58ea780b"
+  x-signSecret: "c640ca392cd45fb3a55b00a63a86c618"
+  x-orderPinKey: "c1h2i5n6g2o2k4a7"
+  x-orderPinIv: "C2H3I4N5G2O3K1E4"
+
+servers:
+  - url: https://ggtypt.nju.edu.cn
+    description: 体育场馆预约站点
+
+security:
+  - venueToken: []
+
+tags:
+  - name: 会话
+  - name: 场馆
+  - name: 预约
+  - name: 订单
+  - name: 验证码
+
+paths:
+  /authserver/login:
+    get:
+      tags: [会话]
+      operationId: venueSsoLogin
+      summary: 统一认证登录，换 oauth_token
+      security: []
+      servers:
+        - url: https://authserver.nju.edu.cn
+          description: 统一身份认证
+      description: |
+        入口。带统一认证 `CASTGC` 会话打这个 URL，会 302 回跳到 `service` 指定的
+        `https://ggtypt.nju.edu.cn/venue-server/sso/manageLogin`，跟完跳转后最终 URL 的 query 里带上 `oauth_token`。
+        拿到 `oauth_token` 后去打 [venueLogin](#tag/会话/POST/venue-server/api/login)。这一步不需要签名头。
+      parameters:
+        - name: service
+          in: query
+          required: true
+          description: 回跳地址，固定体育场馆的 SSO 回调。
+          schema:
+            type: string
+            default: "https://ggtypt.nju.edu.cn/venue-server/sso/manageLogin"
+          example: "https://ggtypt.nju.edu.cn/venue-server/sso/manageLogin"
+      responses:
+        "302":
+          description: 有会话则回跳 `manageLogin`，最终地址 query 里带 `oauth_token`。
+        "200":
+          description: 跟完跳转后的落地页（客户端从最终 URL 提取 `oauth_token`）。
+
+  /venue-server/api/login:
+    post:
+      tags: [会话]
+      operationId: venueLogin
+      summary: oauth_token 换业务 token
+      security: []
+      description: |
+        用 SSO 拿到的 `oauth_token` 换业务 token。请求头 `oauth-token` 放它，**不是** `cgAuthorization`。
+        空表单，但仍要带 `app-key` / `timestamp` / `sign` 三个签名头（签名参数为空，只签 path + timestamp）。
+        返回 `data.token.access_token` 当业务 token；`data.roles` 非空就继续 `roleLogin`。
+      parameters:
+        - $ref: "#/components/parameters/oauthToken"
+        - $ref: "#/components/parameters/appKey"
+        - $ref: "#/components/parameters/timestamp"
+        - $ref: "#/components/parameters/sign"
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: 登录信封，`data` 里是 token 和角色。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginEnvelope"
+              example:
+                code: 200
+                message: null
+                messageEn: null
+                data:
+                  token:
+                    access_token: "example-access-token"
+                    token_type: "bearer"
+                  roles:
+                    - id: "10000000000000000"
+                      name: "示例角色"
+
+  /venue-server/roleLogin:
+    post:
+      tags: [会话]
+      operationId: venueRoleLogin
+      summary: 选角色换新 token
+      description: |
+        `login` 返回的 `roles` 非空时打这一下换角色。请求头 `cgAuthorization` 放上一步的 `access_token`，
+        表单字段 `roleid`（全小写）= `roles[0].id`。返回换过角色的新 `data.token.access_token`。
+        照常带签名头，`path` 签名用 `/roleLogin`（没有 `/api` 前缀）。
+      parameters:
+        - $ref: "#/components/parameters/appKey"
+        - $ref: "#/components/parameters/timestamp"
+        - $ref: "#/components/parameters/sign"
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [roleid]
+              properties:
+                roleid:
+                  type: string
+                  description: 角色 id，取 login 响应 roles[0].id。
+            example:
+              roleid: "10000000000000000"
+      responses:
+        "200":
+          description: 换角色后的登录信封。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleLoginEnvelope"
+              example:
+                code: 200
+                message: null
+                messageEn: null
+                data:
+                  token:
+                    access_token: "example-access-token-role"
+                    token_type: "bearer"
+
+  /venue-server/api/reservation/campus/venue/info:
+    get:
+      tags: [场馆]
+      operationId: venueListCampusVenueInfo
+      summary: 校区 / 场馆 / 场地项目总表
+      description: |
+        前台展示用的场馆和可预约场地项目总表。可选 `sportType` 按运动过滤。
+        `data.venueSiteInfo` 是主表：每个 `VenueSiteInfo` 的 `id` 就是后面各接口的 `venueSiteId`。
+        `venueInfo` / `venueSiteInfo` 外层键疑似按校区或运动分组，未完全确认，遍历各组的数组即可。
+      parameters:
+        - $ref: "#/components/parameters/appKey"
+        - $ref: "#/components/parameters/timestamp"
+        - $ref: "#/components/parameters/sign"
+        - $ref: "#/components/parameters/nocache"
+        - name: sportType
+          in: query
+          required: false
+          description: 运动类型 id，如 152（健身）、153（跑步）、151（羽毛球）。不传返回全部。
+          schema:
+            type: [integer, "null"]
+          example: 152
+      responses:
+        "200":
+          description: 场馆总表信封。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CampusVenueInfoEnvelope"
+              example:
+                code: 200
+                message: null
+                messageEn: null
+                data:
+                  advanceReservationDays: 3
+                  reservationNumMax: 2
+                  venueInfo:
+                    "152":
+                      - id: 40001
+                        campusId: 51
+                        venueName: "示例场馆"
+                        venuePhoto: null
+                  venueSiteInfo:
+                    "152":
+                      - id: 20001
+                        campusId: 51
+                        campusName: "示例校区"
+                        venueName: "示例场馆"
+                        siteName: "示例场地"
+                        sportName: "健身"
+                        sportType: 152
+                        openStartDate: "06:00"
+                        openEndDate: "22:00"
+                        spaceCount: 10
+                        reservationSpaceCount: 8
+                        siteTelephone: "025-00000000"
+
+  /venue-server/api/front/website/venue_sites/{venueSiteId}:
+    get:
+      tags: [场馆]
+      operationId: venueGetVenueSite
+      summary: 场地项目详情
+      description: 单个场地项目的详情，字段同 `VenueSiteInfo`（会多带若干展示字段）。
+      parameters:
+        - name: venueSiteId
+          in: path
+          required: true
+          description: 场地项目 id，来自场馆总表 venueSiteInfo[].id。
+          schema:
+            type: integer
+          example: 20001
+        - $ref: "#/components/parameters/appKey"
+        - $ref: "#/components/parameters/timestamp"
+        - $ref: "#/components/parameters/sign"
+        - $ref: "#/components/parameters/nocache"
+      responses:
+        "200":
+          description: 场地项目详情信封。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VenueSiteEnvelope"
+              example:
+                code: 200
+                message: null
+                messageEn: null
+                data:
+                  id: 20001
+                  campusId: 51
+                  campusName: "示例校区"
+                  venueName: "示例场馆"
+                  siteName: "示例场地"
+                  sportName: "健身"
+                  sportType: 152
+                  openStartDate: "06:00"
+                  openEndDate: "22:00"
+                  spaceCount: 10
+                  reservationSpaceCount: 8
+                  siteTelephone: "025-00000000"
+
+  /venue-server/api/reservation/day/info:
+    get:
+      tags: [预约]
+      operationId: venueGetReservationDay
+      summary: 某日预约状态
+      description: |
+        查某个场地项目某天的场地 × 时段状态。提交预约前要先打它拿 `token` 和 `weekStartDate`。
+
+        - `data.token`：提交订单要回传的 token。
+        - `data.reservationDateList`：本周可约日期；`weekStartDate` 一般取第一项。
+        - `data.spaceTimeInfo`：时段表，`id` 就是 `timeId`。
+        - `data.reservationDateSpaceInfo["<日期>"]`：当天各场地；每个场地对象里用 `timeId` 当键挂着该场地该时段的
+          `{ reservationStatus, startDate, endDate }`。`reservationStatus == 1` 才是空闲可约。
+
+        提交前建议带 `hasReserveInfo=1`（拿全下单要用的信息）。
+      parameters:
+        - $ref: "#/components/parameters/appKey"
+        - $ref: "#/components/parameters/timestamp"
+        - $ref: "#/components/parameters/sign"
+        - $ref: "#/components/parameters/nocache"
+        - name: venueSiteId
+          in: query
+          required: true
+          description: 场地项目 id。
+          schema:
+            type: integer
+          example: 20001
+        - name: searchDate
+          in: query
+          required: true
+          description: 查询日期，YYYY-MM-DD。
+          schema:
+            type: string
+          example: "2026-08-25"
+        - name: hasReserveInfo
+          in: query
+          required: false
+          description: 传 `1` 时附带下单所需信息。提交预约前用。
+          schema:
+            type: [string, "null"]
+            enum: ["1", null]
+          example: "1"
+      responses:
+        "200":
+          description: 预约状态信封。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReservationDayEnvelope"
+              example:
+                code: 200
+                message: null
+                messageEn: null
+                data:
+                  token: "example-status-token"
+                  reservationDateList: ["2026-08-25", "2026-08-26"]
+                  spaceTimeInfo:
+                    - id: 5001
+                      beginTime: "21:30"
+                      endTime: "22:00"
+                  reservationDateSpaceInfo:
+                    "2026-08-25":
+                      - id: 30001
+                        spaceName: "示例场地1号"
+                        venueSpaceGroupId: 40001
+                        "5001":
+                          reservationStatus: 1
+                          startDate: "2026-08-25 21:30"
+                          endDate: "2026-08-25 22:00"
+
+  /venue-server/api/reservation/order/info:
+    post:
+      tags: [预约]
+      operationId: venueGetOrderInfo
+      summary: 下单前算价
+      description: |
+        提交前确认订单信息 / 价格。表单字段用驼峰（下同）。`reservationOrderJson` 是 `ReservationItem` 数组的
+        **JSON 字符串**，如 `[{"spaceId":"30001","timeId":"5001"}]`。`token` 回传预约状态接口的 `token`。
+        返回里价格字段有好几个别名（`orderPrice` / `totalAmount` / `orderAmount` / `amount`），取到哪个用哪个；免费场地为 0。
+      parameters:
+        - $ref: "#/components/parameters/appKey"
+        - $ref: "#/components/parameters/timestamp"
+        - $ref: "#/components/parameters/sign"
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/OrderInfoForm"
+            example:
+              venueSiteId: 20001
+              reservationDate: "2026-08-25"
+              weekStartDate: "2026-08-25"
+              reservationOrderJson: '[{"spaceId":"30001","timeId":"5001"}]'
+              token: "example-status-token"
+      responses:
+        "200":
+          description: 订单预览信封。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderInfoEnvelope"
+              example:
+                code: 200
+                message: null
+                messageEn: null
+                data:
+                  orderPrice: 0
+                  totalAmount: 0
+                  orderAmount: 0
+                  amount: 0
+
+  /venue-server/api/reservation/order/submit:
+    post:
+      tags: [预约]
+      operationId: venueSubmitOrder
+      summary: 提交预约订单
+      description: |
+        真正下单。除下单主体外还要三样加密串（算法见顶部认证说明）：
+
+        - `captchaToken`：`captcha/get` 的 `token`。
+        - `captchaVerification`：AES-ECB(`<captchaToken>---<pointsJson>`) 的 Base64，用 `captcha/get` 的 `secretKey`。
+        - `orderPin`：AES-CBC(`"<clientX>,<clientY>"`) 的小写 hex，固定 key `c1h2i5n6g2o2k4a7` / iv `C2H3I4N5G2O3K1E4`，坐标默认 `0,0`。
+
+        `token` 回传预约状态接口的 `token`；`orderPrice` 免费场地传 0。提交成功返回 `data.tradeNo`，
+        免费场地还要再打 [venuePayOrder](#tag/订单/POST/venue-server/api/venue/finances/order/pay) 确认。
+      parameters:
+        - $ref: "#/components/parameters/appKey"
+        - $ref: "#/components/parameters/timestamp"
+        - $ref: "#/components/parameters/sign"
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/SubmitOrderForm"
+            example:
+              venueSiteId: 20001
+              reservationDate: "2026-08-25"
+              weekStartDate: "2026-08-25"
+              reservationOrderJson: '[{"spaceId":"30001","timeId":"5001"}]'
+              orderPrice: 0
+              orderPin: "9f8e7d6c5b4a39281706f5e4d3c2b1a0"
+              captchaToken: "example-captcha-token"
+              captchaVerification: "ZXhhbXBsZS1jYXB0Y2hhLXZlcmlmaWNhdGlvbg=="
+              token: "example-status-token"
+      responses:
+        "200":
+          description: 下单结果信封。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmitOrderEnvelope"
+              example:
+                code: 200
+                message: null
+                messageEn: null
+                data:
+                  id: 900001
+                  tradeNo: "V20260824000000"
+                  reservationStartDate: "2026-08-25 21:30"
+                  reservationEndDate: "2026-08-25 22:00"
+
+  /venue-server/api/captcha/get:
+    get:
+      tags: [验证码]
+      operationId: venueGetCaptcha
+      summary: 取点选验证码题
+      description: |
+        aj-captcha 点选文字验证码。`data.repData` 里：`token`、`secretKey`（16 字节 AES key）、
+        `originalImageBase64`（题图，Base64 PNG）、`wordList`（要依次点的字）。
+        本地 OCR 出坐标后走 [venueCheckCaptcha](#tag/验证码/POST/venue-server/api/captcha/check) 校验。
+      parameters:
+        - $ref: "#/components/parameters/appKey"
+        - $ref: "#/components/parameters/timestamp"
+        - $ref: "#/components/parameters/sign"
+        - $ref: "#/components/parameters/nocache"
+        - name: captchaType
+          in: query
+          required: true
+          description: 固定 clickWord（点选文字）。
+          schema:
+            type: string
+            default: "clickWord"
+          example: "clickWord"
+        - name: clientUid
+          in: query
+          required: true
+          description: 前端生成的客户端标识，任意稳定串即可。
+          schema:
+            type: string
+          example: "point-nju-cli"
+      responses:
+        "200":
+          description: 验证码题信封。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CaptchaGetEnvelope"
+              example:
+                code: 200
+                message: null
+                messageEn: null
+                data:
+                  repCode: "0000"
+                  repMsg: null
+                  success: true
+                  repData:
+                    token: "example-captcha-token"
+                    secretKey: "0123456789abcdef"
+                    originalImageBase64: "iVBORw0KGgoAAAANSUhEUg..."
+                    wordList: ["天", "地", "人"]
+
+  /venue-server/api/captcha/check:
+    post:
+      tags: [验证码]
+      operationId: venueCheckCaptcha
+      summary: 校验点选坐标
+      description: |
+        提交点选坐标校验。`pointJson` = AES-ECB(pointsJson) 的 Base64（AES-128-ECB / PKCS7，key = `captcha/get` 的 `secretKey`）；
+        `pointsJson` 是坐标数组，如 `[{"x":93,"y":56},{"x":160,"y":80},{"x":230,"y":72}]`，顺序对应 `wordList`。
+        `token` 用 `captcha/get` 的 token。`data.repCode == "0000"` 才算过，过了才能提交订单。
+      parameters:
+        - $ref: "#/components/parameters/appKey"
+        - $ref: "#/components/parameters/timestamp"
+        - $ref: "#/components/parameters/sign"
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [captchaType, pointJson, token]
+              properties:
+                captchaType:
+                  type: string
+                  default: "clickWord"
+                pointJson:
+                  type: string
+                  description: AES-ECB 加密并 Base64 的坐标串（明文见 pointsJson 说明）。
+                token:
+                  type: string
+                  description: captcha/get 的 token。
+            example:
+              captchaType: "clickWord"
+              pointJson: "ZXhhbXBsZS1lbmNyeXB0ZWQtcG9pbnQtanNvbg=="
+              token: "example-captcha-token"
+      responses:
+        "200":
+          description: 校验结果信封。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CaptchaCheckEnvelope"
+              example:
+                code: 200
+                message: null
+                messageEn: null
+                data:
+                  repCode: "0000"
+                  repMsg: null
+                  success: true
+                  repData:
+                    result: true
+
+  /venue-server/api/venue/finances/order/pay:
+    post:
+      tags: [订单]
+      operationId: venuePayOrder
+      summary: 免费支付 / 确认订单
+      description: |
+        提交成功后确认订单（免费场地即“付款”）。表单 `venueTradeNo` = 下单返回的 `tradeNo`，`isApp` 传 `0`。
+      parameters:
+        - $ref: "#/components/parameters/appKey"
+        - $ref: "#/components/parameters/timestamp"
+        - $ref: "#/components/parameters/sign"
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [venueTradeNo, isApp]
+              properties:
+                venueTradeNo:
+                  type: string
+                  description: 下单返回的 tradeNo。
+                isApp:
+                  type: string
+                  default: "0"
+            example:
+              venueTradeNo: "V20260824000000"
+              isApp: "0"
+      responses:
+        "200":
+          description: 付款结果信封。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PayOrderEnvelope"
+              example:
+                code: 200
+                message: null
+                messageEn: null
+                data:
+                  payFee: 0
+
+  /venue-server/api/orders/mine:
+    get:
+      tags: [订单]
+      operationId: venueListOrders
+      summary: 我的预约记录
+      description: |
+        分页列我的预约。**`page` 从 0 开始**（页码 1 对应 `page=0`）。`data` 是 Spring 分页对象，记录在 `data.content`。
+        `orderStatus`：1 有效、2 已取消。
+      parameters:
+        - $ref: "#/components/parameters/appKey"
+        - $ref: "#/components/parameters/timestamp"
+        - $ref: "#/components/parameters/sign"
+        - $ref: "#/components/parameters/nocache"
+        - name: page
+          in: query
+          required: true
+          description: 页码，从 0 开始。
+          schema:
+            type: integer
+            default: 0
+          example: 0
+        - name: size
+          in: query
+          required: true
+          description: 每页数量。
+          schema:
+            type: integer
+            default: 20
+          example: 20
+      responses:
+        "200":
+          description: 预约记录分页信封。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderListEnvelope"
+              example:
+                code: 200
+                message: null
+                messageEn: null
+                data:
+                  content:
+                    - id: 900001
+                      tradeNo: "V20260824000000"
+                      campusName: "示例校区"
+                      venueName: "示例场馆"
+                      siteName: "示例场地"
+                      reservationDateDetail: "2026-08-25 21:30-22:00"
+                      orderStatus: 1
+                  totalElements: 1
+                  totalPages: 1
+                  size: 20
+                  number: 0
+
+  /venue-server/api/orders/{orderId}:
+    get:
+      tags: [订单]
+      operationId: venueGetOrder
+      summary: 预约详情
+      description: 单条预约详情。订单信息在 `data.orderInfo`，场馆信息在 `data.venueInfoBean`。
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          description: 预约记录 id（不是 tradeNo），来自 orders/mine 的 content[].id。
+          schema:
+            type: integer
+          example: 900001
+        - $ref: "#/components/parameters/appKey"
+        - $ref: "#/components/parameters/timestamp"
+        - $ref: "#/components/parameters/sign"
+        - $ref: "#/components/parameters/nocache"
+      responses:
+        "200":
+          description: 预约详情信封。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderDetailEnvelope"
+              example:
+                code: 200
+                message: null
+                messageEn: null
+                data:
+                  orderInfo:
+                    tradeNo: "V20260824000000"
+                    orderStatus: 1
+                    reservationDate: "2026-08-25"
+                    reservationDateDetail: "2026-08-25 21:30-22:00"
+                    orderAmount: 0
+                    totalAmount: 0
+                  venueInfoBean:
+                    campusName: "示例校区"
+                    venueName: "示例场馆"
+                    siteName: "示例场地"
+
+  /venue-server/api/venue/finances/order/cancel:
+    post:
+      tags: [订单]
+      operationId: venueCancelOrder
+      summary: 取消预约
+      description: 取消一条预约。表单 `venueTradeNo` = 预约的 `tradeNo`，`remark` 是取消备注（可空串）。
+      parameters:
+        - $ref: "#/components/parameters/appKey"
+        - $ref: "#/components/parameters/timestamp"
+        - $ref: "#/components/parameters/sign"
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [venueTradeNo, remark]
+              properties:
+                venueTradeNo:
+                  type: string
+                  description: 预约的 tradeNo。
+                remark:
+                  type: string
+                  description: 取消备注，可空串。
+            example:
+              venueTradeNo: "V20260824000000"
+              remark: ""
+      responses:
+        "200":
+          description: 取消结果信封。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenericEnvelope"
+              example:
+                code: 200
+                message: "取消成功"
+                messageEn: null
+                data: null
+
+components:
+  securitySchemes:
+    venueToken:
+      type: apiKey
+      in: header
+      name: cgAuthorization
+      description: |
+        占位。业务 token（`token.access_token`），来自 `api/login` →（有角色再）`roleLogin`。
+        除此之外每个业务请求还要 `app-key` / `timestamp` / `sign` 三个签名头，算法见 info 认证说明。
+        Playground 不会代打生产。
+
+  parameters:
+    appKey:
+      name: app-key
+      in: header
+      required: true
+      description: 固定 `8fceb735082b5a529312040b58ea780b`。
+      schema:
+        type: string
+        default: "8fceb735082b5a529312040b58ea780b"
+      example: "8fceb735082b5a529312040b58ea780b"
+    timestamp:
+      name: timestamp
+      in: header
+      required: true
+      description: 毫秒时间戳；和签名里的 timestamp 必须一致。GET 请求还要把同一个值作为 `nocache` 查询参数带上。
+      schema:
+        type: string
+      example: "1756044000000"
+    sign:
+      name: sign
+      in: header
+      required: true
+      description: |
+        `md5(SIGN_SECRET + path + 排序后非空参数拼接 + timestamp + " " + SIGN_SECRET)`，小写十六进制。
+        `path` 去掉 `/venue-server` 前缀。详见 info 认证说明。
+      schema:
+        type: string
+      example: "9f8e7d6c5b4a39281706f5e4d3c2b1a0"
+    nocache:
+      name: nocache
+      in: query
+      required: true
+      description: 毫秒时间戳，和 `timestamp` 头同值，也参与签名。仅 GET 用。
+      schema:
+        type: string
+      example: "1756044000000"
+    oauthToken:
+      name: oauth-token
+      in: header
+      required: true
+      description: SSO 回跳最终 URL 里的 oauth_token。
+      schema:
+        type: string
+      example: "example-oauth-token"
+
+  schemas:
+    ApiResponse:
+      type: object
+      required: [code]
+      description: 统一响应信封。code == 200 为成功。
+      properties:
+        code:
+          type: integer
+          description: 200 成功，其它为错误码。
+          example: 200
+        message:
+          type: [string, "null"]
+        messageEn:
+          type: [string, "null"]
+        data: {}
+
+    Token:
+      type: object
+      properties:
+        access_token:
+          type: string
+          description: 业务 token，之后放 cgAuthorization 头。
+        token_type:
+          type: [string, "null"]
+      additionalProperties: true
+
+    Role:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          description: 角色 id，roleLogin 的 roleid。
+        name:
+          type: [string, "null"]
+      additionalProperties: true
+
+    LoginData:
+      type: object
+      properties:
+        token:
+          $ref: "#/components/schemas/Token"
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/Role"
+      additionalProperties: true
+
+    LoginEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/LoginData"
+
+    RoleLoginData:
+      type: object
+      properties:
+        token:
+          $ref: "#/components/schemas/Token"
+      additionalProperties: true
+
+    RoleLoginEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/RoleLoginData"
+
+    VenueInfo:
+      type: object
+      description: 场馆。
+      properties:
+        id:
+          type: [integer, "null"]
+        campusId:
+          type: [integer, "null"]
+        venueName:
+          type: string
+          description: 场馆名
+        venuePhoto:
+          type: [string, "null"]
+      additionalProperties: true
+
+    VenueSiteInfo:
+      type: object
+      description: 场地项目。id 即各接口的 venueSiteId。
+      required: [id]
+      properties:
+        id:
+          type: integer
+          description: 场地项目 id（venueSiteId）
+        campusId:
+          type: [integer, "null"]
+        campusName:
+          type: [string, "null"]
+          description: 校区名
+        venueName:
+          type: [string, "null"]
+          description: 场馆名
+        siteName:
+          type: [string, "null"]
+          description: 场地项目名
+        sportName:
+          type: [string, "null"]
+          description: 运动名
+        sportType:
+          type: [integer, "null"]
+        openStartDate:
+          type: [string, "null"]
+          description: 开放起始（时刻或日期）
+        openEndDate:
+          type: [string, "null"]
+        spaceCount:
+          type: [integer, "null"]
+          description: 场地数
+        reservationSpaceCount:
+          type: [integer, "null"]
+          description: 可预约场地数
+        siteTelephone:
+          type: [string, "null"]
+          description: 联系电话
+      additionalProperties: true
+
+    CampusVenueInfo:
+      type: object
+      properties:
+        advanceReservationDays:
+          type: [integer, "null"]
+          description: 可提前预约天数
+        reservationNumMax:
+          type: [integer, "null"]
+          description: 最多可预约数
+        venueInfo:
+          type: object
+          description: 场馆分组，键疑似校区 / 运动 id（未完全确认）。
+          additionalProperties:
+            type: array
+            items:
+              $ref: "#/components/schemas/VenueInfo"
+        venueSiteInfo:
+          type: object
+          description: 场地项目分组，键疑似校区 / 运动 id（未完全确认）。
+          additionalProperties:
+            type: array
+            items:
+              $ref: "#/components/schemas/VenueSiteInfo"
+      additionalProperties: true
+
+    CampusVenueInfoEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/CampusVenueInfo"
+
+    VenueSiteEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/VenueSiteInfo"
+
+    TimeSlot:
+      type: object
+      description: 时段。id 即 timeId。
+      properties:
+        id:
+          type: [integer, string]
+          description: 时段 id（timeId）
+        beginTime:
+          type: [string, "null"]
+          description: 开始时刻，如 21:30
+        endTime:
+          type: [string, "null"]
+          description: 结束时刻
+      additionalProperties: true
+
+    SpaceSlot:
+      type: object
+      description: 某场地某时段的状态；挂在 Space 对象里以 timeId 为键。
+      properties:
+        reservationStatus:
+          type: integer
+          description: 1 空闲、2 不可用、3 未支付、4 已被占用。1 才可约。
+        startDate:
+          type: [string, "null"]
+        endDate:
+          type: [string, "null"]
+      additionalProperties: true
+
+    Space:
+      type: object
+      description: |
+        场地。除下列固定字段外，还用 timeId 当键挂着各时段的 SpaceSlot
+        （例：键 "5001" 的值是一个 SpaceSlot）。
+      required: [id]
+      properties:
+        id:
+          type: [integer, string]
+          description: 场地 spaceId
+        spaceName:
+          type: [string, "null"]
+          description: 场地名
+        venueSpaceGroupId:
+          type: [integer, string, "null"]
+          description: 分组场地 id
+      additionalProperties:
+        $ref: "#/components/schemas/SpaceSlot"
+
+    ReservationDayData:
+      type: object
+      properties:
+        token:
+          type: [string, "null"]
+          description: 提交订单要回传的 token。
+        reservationDateList:
+          type: array
+          description: 本周可约日期列表；weekStartDate 一般取第一项。
+          items:
+            type: string
+        spaceTimeInfo:
+          type: array
+          items:
+            $ref: "#/components/schemas/TimeSlot"
+        reservationDateSpaceInfo:
+          type: object
+          description: 键是日期（YYYY-MM-DD），值是当天各场地。
+          additionalProperties:
+            type: array
+            items:
+              $ref: "#/components/schemas/Space"
+      additionalProperties: true
+
+    ReservationDayEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/ReservationDayData"
+
+    OrderInfoForm:
+      type: object
+      required: [venueSiteId, reservationDate, weekStartDate, reservationOrderJson]
+      properties:
+        venueSiteId:
+          type: integer
+          description: 场地项目 id
+        reservationDate:
+          type: string
+          description: 预约日期 YYYY-MM-DD
+        weekStartDate:
+          type: string
+          description: 周起始日期，取状态接口 reservationDateList 第一项
+        reservationOrderJson:
+          type: string
+          description: ReservationItem 数组的 JSON 字符串
+          contentMediaType: application/json
+          contentSchema:
+            type: array
+            items:
+              $ref: "#/components/schemas/ReservationItem"
+        reservationType:
+          type: [integer, "null"]
+          description: 预约类型，普通预约可不传
+        schoolType:
+          type: [integer, "null"]
+        token:
+          type: [string, "null"]
+          description: 状态接口返回的 token
+
+    SubmitOrderForm:
+      type: object
+      required: [venueSiteId, reservationDate, weekStartDate, reservationOrderJson]
+      properties:
+        venueSiteId:
+          type: integer
+        reservationDate:
+          type: string
+          description: 预约日期 YYYY-MM-DD
+        weekStartDate:
+          type: string
+        reservationOrderJson:
+          type: string
+          description: ReservationItem 数组的 JSON 字符串
+          contentMediaType: application/json
+          contentSchema:
+            type: array
+            items:
+              $ref: "#/components/schemas/ReservationItem"
+        reservationType:
+          type: [integer, "null"]
+        orderPrice:
+          type: [number, "null"]
+          description: 订单价格，免费场地传 0
+        orderPin:
+          type: [string, "null"]
+          description: AES-CBC(hex) 加密的点击坐标，见说明
+        captchaVerification:
+          type: [string, "null"]
+          description: AES-ECB(Base64) 的 token---pointsJson，见说明
+        captchaToken:
+          type: [string, "null"]
+          description: captcha/get 的 token
+        token:
+          type: [string, "null"]
+          description: 状态接口返回的 token
+
+    ReservationItem:
+      type: object
+      description: reservationOrderJson 数组里的一项（序列化成 JSON 字符串后传）。
+      required: [spaceId, timeId]
+      properties:
+        spaceId:
+          type: string
+          description: 场地 id
+        timeId:
+          type: string
+          description: 时段 id
+        venueSpaceGroupId:
+          type: [string, "null"]
+          description: 分组场地 id，可选
+
+    OrderInfoData:
+      type: object
+      description: 价格字段有多个别名，取到哪个用哪个。
+      properties:
+        orderPrice:
+          type: [number, "null"]
+        totalAmount:
+          type: [number, "null"]
+        orderAmount:
+          type: [number, "null"]
+        amount:
+          type: [number, "null"]
+      additionalProperties: true
+
+    OrderInfoEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/OrderInfoData"
+
+    SubmitOrderData:
+      type: object
+      properties:
+        id:
+          type: [integer, "null"]
+          description: 预约记录 id
+        tradeNo:
+          type: [string, "null"]
+          description: 订单号，付款 / 取消要用
+        reservationStartDate:
+          type: [string, "null"]
+        reservationEndDate:
+          type: [string, "null"]
+      additionalProperties: true
+
+    SubmitOrderEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/SubmitOrderData"
+
+    PayOrderData:
+      type: object
+      properties:
+        payFee:
+          type: [number, "null"]
+          description: 支付金额，免费为 0
+      additionalProperties: true
+
+    PayOrderEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/PayOrderData"
+
+    CaptchaRepData:
+      type: object
+      properties:
+        token:
+          type: [string, "null"]
+          description: 验证码 token，即 captchaToken
+        secretKey:
+          type: [string, "null"]
+          description: 16 字节 AES key，用于 pointJson / captchaVerification 加密
+        originalImageBase64:
+          type: [string, "null"]
+          description: 题图，Base64 PNG
+        wordList:
+          type: [array, "null"]
+          description: 要按序点的字
+          items:
+            type: string
+      additionalProperties: true
+
+    CaptchaGetData:
+      type: object
+      description: aj-captcha 载荷（包在业务信封的 data 里）。
+      properties:
+        repCode:
+          type: [string, "null"]
+          description: "0000 为成功"
+        repMsg:
+          type: [string, "null"]
+        success:
+          type: [boolean, "null"]
+        repData:
+          $ref: "#/components/schemas/CaptchaRepData"
+      additionalProperties: true
+
+    CaptchaGetEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/CaptchaGetData"
+
+    CaptchaCheckData:
+      type: object
+      properties:
+        repCode:
+          type: [string, "null"]
+          description: "0000 才算过"
+        repMsg:
+          type: [string, "null"]
+        success:
+          type: [boolean, "null"]
+        repData: {}
+      additionalProperties: true
+
+    CaptchaCheckEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/CaptchaCheckData"
+
+    OrderListItem:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: integer
+          description: 预约记录 id
+        tradeNo:
+          type: [string, "null"]
+        campusName:
+          type: [string, "null"]
+        venueName:
+          type: [string, "null"]
+        siteName:
+          type: [string, "null"]
+        reservationDateDetail:
+          type: [string, "null"]
+          description: 预约时段文字
+        orderStatus:
+          type: [integer, "null"]
+          description: 1 有效、2 已取消
+      additionalProperties: true
+
+    OrderListData:
+      type: object
+      description: Spring 分页对象，记录在 content。
+      properties:
+        content:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderListItem"
+        totalElements:
+          type: [integer, "null"]
+        totalPages:
+          type: [integer, "null"]
+        size:
+          type: [integer, "null"]
+        number:
+          type: [integer, "null"]
+          description: 当前页码，从 0 开始
+      additionalProperties: true
+
+    OrderListEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/OrderListData"
+
+    OrderInfoBean:
+      type: object
+      properties:
+        tradeNo:
+          type: [string, "null"]
+        orderStatus:
+          type: [integer, "null"]
+          description: 1 有效、2 已取消
+        reservationDate:
+          type: [string, "null"]
+        reservationDateDetail:
+          type: [string, "null"]
+        orderAmount:
+          type: [number, "null"]
+        totalAmount:
+          type: [number, "null"]
+      additionalProperties: true
+
+    VenueInfoBean:
+      type: object
+      properties:
+        campusName:
+          type: [string, "null"]
+        venueName:
+          type: [string, "null"]
+        siteName:
+          type: [string, "null"]
+      additionalProperties: true
+
+    OrderDetailData:
+      type: object
+      properties:
+        orderInfo:
+          $ref: "#/components/schemas/OrderInfoBean"
+        venueInfoBean:
+          $ref: "#/components/schemas/VenueInfoBean"
+      additionalProperties: true
+
+    OrderDetailEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponse"
+        - type: object
+          properties:
+            data:
+              $ref: "#/components/schemas/OrderDetailData"
+
+    GenericEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/ApiResponse"
+        - type: object
+          properties:
+            data: {}

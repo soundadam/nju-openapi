@@ -1,0 +1,192 @@
+openapi: 3.1.0
+info:
+  title: 资产管理处 zcc
+  version: "0.1.0"
+  summary: zcc.nju.edu.cn 公开官网的抓取接口。无需登录，非官方，会变。
+  description: |
+    资产管理处官网是博杉平台（不是 WebPlus），页面公开，不用登录。
+
+    列表页 `/{栏目路径}/index.html` 是静态 HTML，脚本里内嵌 `var dataList=` JSON，前
+    `jsonPageTotal` 页数据直接在页面里；更靠后的页走 `POST /njdx/openapi/t/info/list.do`。
+    博杉前端的请求封装统一给接口加 `/njdx` 前缀，并把每个表单值 base64 后再发：
+    `channelid=13906` 实发 `MTM5MDY=`、`pageno=2` 实发 `Mg==`、`pagesize=15` 实发 `MTU=`。
+    channelid 不是写死的，从对应列表页 `var channelId=` 里读。
+
+    栏目路径：
+
+    - 综合新闻 `bmdt`、办事指南 `sy/bszn`、处罚通告 `cftg`
+    - 通知公告 `sy/tzzhxx`，分科室 `tzgg/gyfytdglk`（公用房与土地）、`tzgg/zfglk`（住房）、`tzgg/xxzhk`（信息综合）、`tzgg/czcjk`（出租出借）、`tzgg/gyzcglk`（项目）
+    - 规章制度 `zczd`，国家省部法规 `zczd/gjsbygflfg`，各科室制度在 `zczd/gyfytdglk/` 下再接 `gyfytdglk`、`zfglk`、`xxzhk`、`czcjglk`、`gyzcglk`
+    - 文件下载在 `wjxz/` 下接 `zcwjxz`（政策文件）、`gyfytdglk`、`zfglk`、`xxzhk`、`czcjglk`、`bgwjxz`（项目）
+    - 公开招租：公告 `gkzz/gg`、公示 `gkzz/gs`
+  x-source: https://zcc.nju.edu.cn
+  x-captured: "2026-08-24"
+
+servers:
+  - url: https://zcc.nju.edu.cn
+    description: 资产管理处官网，公开抓取
+
+tags:
+  - name: 列表
+  - name: 正文
+
+paths:
+  /{sectionPath}/index.html:
+    get:
+      tags: [列表]
+      operationId: zccListPage
+      summary: 栏目列表首页
+      description: |
+        返回 HTML，数据全在内嵌脚本里，按标记抠：
+
+        - `var channelId=`：栏目 channelid，翻页 API 要用
+        - `var pageSize=`：每页条数
+        - 总页数优先 `var pageTotal=parseInt(`，取不到再看 `var channelpageTotal=parseInt(`（后者可能只是分页条窗口值，会偏小）
+        - `var jsonPageTotal=parseInt(`：页面里内嵌了前多少页
+        - `var dataList=` 到 `var pagesData=` 之间是 JSON 数组（掐掉尾部分号），每个元素一页，`infolist` 是该页文章
+
+        第 1 到 jsonPageTotal 页直接从 dataList 拿，更靠后的页才打翻页 API。
+      parameters:
+        - name: sectionPath
+          in: path
+          required: true
+          description: 栏目路径，可含斜杠，见文件开头清单。
+          schema:
+            type: string
+          example: sy/bszn
+      responses:
+        "200":
+          description: 栏目列表页 HTML，含内嵌数据。
+          content:
+            text/html:
+              schema:
+                type: string
+              example: |
+                <script>
+                var channelId=13906;
+                var pageSize=15;
+                var jsonPageTotal=parseInt(10);
+                var dataList=[{"infolist":[{"iid":123456,"title":"示例办事指南标题","url":"http://zcc.nju.edu.cn/sy/bszn/20260101/i123456.html","daytime":"2026-01-01","summary":"示例摘要","channelid":13906}]}];
+                var pagesData={"pageTotal":17};
+                var pageTotal=parseInt(17);
+                </script>
+
+  /njdx/openapi/t/info/list.do:
+    post:
+      tags: [列表]
+      operationId: zccListApi
+      summary: 栏目文章翻页
+      description: |
+        博杉前端的 post() 封装统一给接口加 `/njdx` 前缀，并把每个表单值 base64 后再发。原值和实发值对照：
+
+        - `channelid`：`13906` 编成 `MTM5MDY=`
+        - `pageno`：`2` 编成 `Mg==`
+        - `pagesize`：`15` 编成 `MTU=`
+
+        只有页码超过列表页内嵌的 `jsonPageTotal` 时才需要打它，前几页直接从 `var dataList=` 拿。
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/ListForm"
+            example:
+              channelid: "MTM5MDY="
+              pageno: "Mg=="
+              pagesize: "MTU="
+      responses:
+        "200":
+          description: 一页文章 JSON。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InfoListPage"
+              example:
+                infolist:
+                  - iid: 123456
+                    title: 示例办事指南标题
+                    infotitle: 示例办事指南标题
+                    url: http://zcc.nju.edu.cn/sy/bszn/20260101/i123456.html
+                    daytime: "2026-01-01"
+                    summary: 示例摘要
+                    channelid: 13906
+
+  /{articlePath}:
+    get:
+      tags: [正文]
+      operationId: zccReadArticle
+      summary: 文章正文页
+      description: |
+        `articlePath` 填列表返回的 `url` 的路径部分（形如 `sy/bszn/20260101/i123456.html`，可含斜杠；返回的 `http://` 链接换成 https 抓即可）。返回 HTML，转 Markdown 的解析点：
+
+        - 标题：`.content .title`，退而取 `title`
+        - 正文容器依次找：`.content #word`、`.content .words`、`.content`
+        - 内嵌 PDF：`.wp_pdf_player` 或带 `pdfsrc` 属性的元素，取 `pdfsrc`；或播放器 iframe `src` 里的 `file` 查询参数
+      parameters:
+        - name: articlePath
+          in: path
+          required: true
+          description: 列表返回的文章路径，可含斜杠。
+          schema:
+            type: string
+          example: sy/bszn/20260101/i123456.html
+      responses:
+        "200":
+          description: 文章页 HTML。
+          content:
+            text/html:
+              schema:
+                type: string
+              example: '<div class="content"><div class="title">示例办事指南标题</div><div id="word"><p>正文</p></div></div>'
+
+components:
+  schemas:
+    ListForm:
+      type: object
+      required: [channelid, pageno, pagesize]
+      properties:
+        channelid:
+          type: string
+          description: 栏目 channelid，值需 base64 编码。原值是十进制数字，从列表页 `var channelId=` 读，如 13906 编成 MTM5MDY=。
+        pageno:
+          type: string
+          description: 页码，从 1 起，值需 base64 编码，如 2 编成 Mg==。
+        pagesize:
+          type: string
+          description: 每页条数，值需 base64 编码，如 15 编成 MTU=。跟列表页 `var pageSize=` 保持一致。
+    InfoListPage:
+      type: object
+      additionalProperties: true
+      description: list.do 的响应外层，也是列表页内嵌 dataList 数组每个元素的形状。抓取只用 infolist，外层可能还有别的字段。
+      properties:
+        infolist:
+          type: array
+          description: 当前页文章。缺失按空数组处理。
+          items:
+            $ref: "#/components/schemas/Article"
+    Article:
+      type: object
+      additionalProperties: true
+      required: [iid]
+      properties:
+        iid:
+          type: integer
+          description: 文章 ID。
+        title:
+          type: string
+          description: 标题，可能混着 HTML 标签，取纯文本用；清理后为空就用 infotitle。
+        infotitle:
+          type: string
+          description: 备用标题。
+        url:
+          type: string
+          description: 文章页地址，返回的常是 http://，换成 https 抓。
+        daytime:
+          type: string
+          description: 发布日期，如 2026-01-01。
+        summary:
+          type: string
+          description: 摘要，可能含 HTML。
+        channelid:
+          type: integer
+          description: 栏目 channelid。

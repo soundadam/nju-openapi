@@ -1,0 +1,317 @@
+openapi: 3.1.0
+info:
+  title: 研招网 yzb
+  version: "0.1.0"
+  summary: 南京大学研究生招生网公开栏目的列表页与文章页 HTML 抓取。非官方，会变。
+  description: |
+    yzb.nju.edu.cn 是 WebPlus 门户站，公开访问，无需登录，没有 JSON 接口，直接抓 HTML。
+
+    列表页地址 `/<栏目路径>/list.htm`，第 2 页起换成 `list<N>.htm`（如 `list2.htm`；
+    第 1 页就是 `list.htm`，不要用 `list1.htm`）。条目在 `ul.news_list li.news` 里，
+    标题链接 `.news_title a`（优先取 `title` 属性，链接文本可能被截断），日期 `.news_meta`。
+    总页数从 `.pages .all_pages` 拿，翻完为止。
+
+    栏目分五大类，完整清单见 `x-columns`：
+
+    | 大类 | 栏目路径 | 内容 |
+    | --- | --- | --- |
+    | 硕士招生 | `47862` / `47863` | 简章目录 / 硕士最新通知 |
+    | 博士招生 | `47864` / `47865` | 简章目录 / 博士最新通知 |
+    | 夏令营与推免 | `zxgg` | 最新公告 |
+    | 港澳台招生 | `47866` / `47867` | 简章目录 / 港澳台最新通知 |
+    | 信息公开 | `48335` / `48336` / `48337` | 公示 / 复试基本分数线 / 往年报考录取统计 |
+
+    文章正文页 URL 从列表页 href 原样取（形如 `/xx/xx/c47863a12345/page.htm`，
+    中间两段是散列目录），别自己拼。
+  x-source: https://yzb.nju.edu.cn
+  x-captured: "2026-08-24"
+  x-columns:
+    - path: "47862"
+      title: 硕士招生：简章目录
+      url: https://yzb.nju.edu.cn/47862/list.htm
+    - path: "47863"
+      title: 硕士招生：硕士最新通知
+      url: https://yzb.nju.edu.cn/47863/list.htm
+    - path: "47864"
+      title: 博士招生：简章目录
+      url: https://yzb.nju.edu.cn/47864/list.htm
+    - path: "47865"
+      title: 博士招生：博士最新通知
+      url: https://yzb.nju.edu.cn/47865/list.htm
+    - path: "zxgg"
+      title: 夏令营/推免：最新公告
+      url: https://yzb.nju.edu.cn/zxgg/list.htm
+    - path: "47866"
+      title: 港澳台招生：简章目录
+      url: https://yzb.nju.edu.cn/47866/list.htm
+    - path: "47867"
+      title: 港澳台招生：港澳台最新通知
+      url: https://yzb.nju.edu.cn/47867/list.htm
+    - path: "48335"
+      title: 信息公开：公示
+      url: https://yzb.nju.edu.cn/48335/list.htm
+    - path: "48336"
+      title: 信息公开：复试基本分数线
+      url: https://yzb.nju.edu.cn/48336/list.htm
+    - path: "48337"
+      title: 信息公开：往年报考录取统计
+      url: https://yzb.nju.edu.cn/48337/list.htm
+
+servers:
+  - url: https://yzb.nju.edu.cn
+    description: 研究生招生网，公开访问
+
+tags:
+  - name: 硕士招生
+  - name: 博士招生
+  - name: 夏令营与推免
+  - name: 港澳台招生
+  - name: 信息公开
+  - name: 翻页与正文
+
+paths:
+  /47862/list.htm:
+    get:
+      tags: [硕士招生]
+      operationId: yzbMasterGuide
+      summary: 硕士招生简章目录
+      description: 硕士招生简章、专业目录类文章列表首页。
+      responses:
+        "200":
+          $ref: "#/components/responses/NewsListHtml"
+
+  /47863/list.htm:
+    get:
+      tags: [硕士招生]
+      operationId: yzbMasterNotifications
+      summary: 硕士最新通知
+      description: 硕士招生的最新通知公告列表首页。
+      responses:
+        "200":
+          $ref: "#/components/responses/NewsListHtml"
+
+  /47864/list.htm:
+    get:
+      tags: [博士招生]
+      operationId: yzbDoctoralGuide
+      summary: 博士招生简章目录
+      description: 博士招生简章、专业目录类文章列表首页。
+      responses:
+        "200":
+          $ref: "#/components/responses/NewsListHtml"
+
+  /47865/list.htm:
+    get:
+      tags: [博士招生]
+      operationId: yzbDoctoralNotifications
+      summary: 博士最新通知
+      description: 博士招生的最新通知公告列表首页，拟录取名单公示常发在这里。
+      responses:
+        "200":
+          $ref: "#/components/responses/NewsListHtml"
+
+  /zxgg/list.htm:
+    get:
+      tags: [夏令营与推免]
+      operationId: yzbSummerCampNotices
+      summary: 夏令营与推免最新公告
+      description: 夏令营、推荐免试相关的最新公告列表首页。栏目路径是别名 `zxgg`，不是数字 ID。
+      responses:
+        "200":
+          $ref: "#/components/responses/NewsListHtml"
+
+  /47866/list.htm:
+    get:
+      tags: [港澳台招生]
+      operationId: yzbGangAoTaiGuide
+      summary: 港澳台招生简章目录
+      description: 港澳台研究生招生简章、目录类文章列表首页。
+      responses:
+        "200":
+          $ref: "#/components/responses/NewsListHtml"
+
+  /47867/list.htm:
+    get:
+      tags: [港澳台招生]
+      operationId: yzbGangAoTaiNotifications
+      summary: 港澳台最新通知
+      description: 港澳台招生的最新通知公告列表首页。
+      responses:
+        "200":
+          $ref: "#/components/responses/NewsListHtml"
+
+  /48335/list.htm:
+    get:
+      tags: [信息公开]
+      operationId: yzbPublicNotices
+      summary: 信息公开：公示
+      description: 各类公示（复试名单、拟录取名单等）列表首页。
+      responses:
+        "200":
+          $ref: "#/components/responses/NewsListHtml"
+
+  /48336/list.htm:
+    get:
+      tags: [信息公开]
+      operationId: yzbScoreLines
+      summary: 信息公开：复试基本分数线
+      description: 历年复试基本分数线文章列表首页。
+      responses:
+        "200":
+          $ref: "#/components/responses/NewsListHtml"
+
+  /48337/list.htm:
+    get:
+      tags: [信息公开]
+      operationId: yzbAdmissionStats
+      summary: 信息公开：往年报考录取统计
+      description: 往年报考、录取人数统计文章列表首页。
+      responses:
+        "200":
+          $ref: "#/components/responses/NewsListHtml"
+
+  /{column}/list{page}.htm:
+    get:
+      tags: [翻页与正文]
+      operationId: yzbColumnListPage
+      summary: 栏目列表翻页
+      description: |
+        任意栏目第 2 页起用 `list<N>.htm`；第 1 页就是 `list.htm`。
+        稳妥做法：先抓首页，读 `.pages .all_pages` 的总页数再翻，不要盲翻。
+      parameters:
+        - $ref: "#/components/parameters/column"
+        - $ref: "#/components/parameters/page"
+      responses:
+        "200":
+          $ref: "#/components/responses/NewsListHtml"
+        "404":
+          description: 栏目不存在或页码越界。
+  /{hashA}/{hashB}/{articleKey}/page.htm:
+    get:
+      tags: [翻页与正文]
+      operationId: yzbReadArticle
+      summary: 读文章正文页
+      description: |
+        URL 从列表页 href 原样取，别自己拼：`{hashA}/{hashB}` 是两级散列目录
+        （如 `c2`、`4f`），`{articleKey}` 形如 `c47863a12345`——`c` 后是栏目数字 ID，
+        `a` 后是文章 ID（可当稳定主键用）。
+      parameters:
+        - $ref: "#/components/parameters/hashA"
+        - $ref: "#/components/parameters/hashB"
+        - $ref: "#/components/parameters/articleKey"
+      responses:
+        "200":
+          $ref: "#/components/responses/ArticleHtml"
+        "404":
+          description: 文章不存在或已撤下。
+
+components:
+  parameters:
+    column:
+      name: column
+      in: path
+      required: true
+      description: 栏目路径，完整清单见 info 的 `x-columns`。
+      schema:
+        type: string
+        enum:
+          - "47862"
+          - "47863"
+          - "47864"
+          - "47865"
+          - "zxgg"
+          - "47866"
+          - "47867"
+          - "48335"
+          - "48336"
+          - "48337"
+      example: "47863"
+    page:
+      name: page
+      in: path
+      required: true
+      description: 页码，从 2 起；第 1 页直接访问 `list.htm`。
+      schema:
+        type: integer
+        minimum: 2
+      example: 2
+    hashA:
+      name: hashA
+      in: path
+      required: true
+      description: 文章 URL 的第一级散列目录，从列表页 href 取。
+      schema:
+        type: string
+      example: "xx"
+    hashB:
+      name: hashB
+      in: path
+      required: true
+      description: 文章 URL 的第二级散列目录，从列表页 href 取。
+      schema:
+        type: string
+      example: "xx"
+    articleKey:
+      name: articleKey
+      in: path
+      required: true
+      description: 形如 `c<栏目ID>a<文章ID>`，从列表页 href 取。
+      schema:
+        type: string
+      example: "c47863a12345"
+
+  responses:
+    NewsListHtml:
+      description: |
+        WebPlus 列表页 HTML。解析要点：
+
+        - 条目：`ul.news_list li.news`
+        - 标题：`.news_title a`，优先取 `title` 属性（链接文本可能被截断）
+        - 链接：同一个 `a` 的 `href`，相对路径，按当前页 URL join
+        - 日期：`.news_meta`，格式 `YYYY-MM-DD`
+        - 分页：`.per_count` 每页条数、`em.all_count` 总条数、`.pages .all_pages`
+          总页数（当前页在 `em.curr_page`）
+        - 文章 ID：href 里 `c<栏目ID>a<文章ID>` 段的 `a` 后数字
+
+        代表性结构（示例已脱敏）：
+
+        ```html
+        <ul class="news_list">
+          <li class="news clearfix">
+            <span class="news_title">
+              <a href="/xx/xx/c47863a12345/page.htm" title="示例通知标题">示例通知标题</a>
+            </span>
+            <span class="news_meta">2026-01-01</span>
+          </li>
+        </ul>
+        <span class="per_page">每页 <em class="per_count">14</em> 记录</span>
+        <span class="all_count">总共 <em class="all_count">99</em> 记录</span>
+        <span class="pages">页码 <em class="curr_page">1</em>/<em class="all_pages">8</em></span>
+        ```
+      content:
+        text/html:
+          schema:
+            type: string
+    ArticleHtml:
+      description: |
+        文章页 HTML。解析要点：
+
+        - 标题：`.arti_title, .col_title h2, title` 里第一个非空
+        - 正文：`.wp_articlecontent, .article, .col_news_con` 里第一个命中，都没有就用整页
+        - 内嵌 PDF：`.wp_pdf_player, [pdfsrc]`——附件地址在 `pdfsrc` 属性；
+          `iframe` 的 `src` 指向 pdfjs viewer 时，取其 `file` 查询参数
+
+        代表性结构（示例已脱敏）：
+
+        ```html
+        <h1 class="arti_title">示例通知标题</h1>
+        <div class="wp_articlecontent">
+          <p>正文……</p>
+          <iframe class="wp_pdf_player"
+            src="/_js/_portletPlugs/swfPlayer/pdfjs/web/viewer.html?file=/_upload/article/files/xx/xx/example.pdf"></iframe>
+        </div>
+        ```
+      content:
+        text/html:
+          schema:
+            type: string
