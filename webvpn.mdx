@@ -1,0 +1,87 @@
+---
+title: Web VPN
+description: 校外访问走 aTrust（ztna.nju.edu.cn）：域名改写 + 短信两阶段登录。
+---
+
+**非官方**。校外要访问校内站点时，南大用深信服 aTrust 零信任网关。两件事：**目标域名改写**成 `*.atrust.nju.edu.cn`，以及一次**短信两阶段登录**换到 `sid` 会话。
+
+先有 [CASTGC](/authserver) 才能登 Web VPN。会变，没有 SLA。
+
+## 域名改写
+
+把目标 host 改写成 aTrust 代理域，规则：
+
+1. `-` 换成 `--`
+2. `.` 换成 `-`
+3. 末尾加 `.atrust.nju.edu.cn`
+
+| 原始 | 改写后 |
+| --- | --- |
+| `www.nju.edu.cn` | `www-nju-edu-cn.atrust.nju.edu.cn` |
+| `foo-bar.nju.edu.cn` | `foo--bar-nju-edu-cn.atrust.nju.edu.cn` |
+
+已经是 `ztna.nju.edu.cn` 或 `*.atrust.nju.edu.cn` 的地址不再改写。path、query 原样保留。登录拿到 `sid` 后，所有校内请求都改写成代理域再发。
+
+## 阶段一：发短信
+
+用带 `CASTGC` 的会话（Chrome UA），依次打：
+
+| 步 | 请求 | 取什么 |
+| --- | --- | --- |
+| 1 | `GET <目标改写域>` | 应 302 到 `ztna.nju.edu.cn/portal/shortcut.html` |
+| 2 | `GET /passport/v1/public/authConfig?clientType=SDPBrowserClient&platform=Mac&lang=en-US&mod=1` | `data.firstAuth[0]`（authserver 地址）、`data.security.csrfToken` |
+| 3 | `GET <firstAuth[0]>` | 带 CASTGC 走 CAS。若停在 authserver 授权页，再 `POST` 该 URL 带 `scope=user_profile`。最终回到 `shortcut.html?data=<JSON>`，从 `data` 里解析出 `ticket` |
+| 4 | `POST /controller/v1/public/reportEnv?...` | 上报浏览器环境，头带 `x-csrf-token` |
+| 5 | `GET /passport/v1/auth/authCheck?...` | `data.nextServiceList[0].authId` |
+| 6 | `GET /passport/v1/auth/sms?action=sendsms&...&authId=<authId>` | 触发短信下发 |
+
+以上 `ztna.nju.edu.cn` 接口都返回 `{code, message, data}`，`code == 0` 才算成功。
+
+`reportEnv` 的 body：
+
+```json
+{
+  "ticket": "<shortcut data 里的 ticket>",
+  "deviceId": "<67 位设备 ID>",
+  "env": { "endpoint": { "device_id": "<同上>", "device": { "type": "browser" } } }
+}
+```
+
+`deviceId` 是自造的 67 位串：`00` + 1 位非零十六进制 + 64 位十六进制。
+
+`sendsms` 完整 query：`action=sendsms`、`clientType=SDPBrowserClient`、`platform=Mac`、`lang=en-US`、`isPrevEffect=0`、`taskId=`、`authId=<上一步>`。
+
+```bash
+curl -sS 'https://ztna.nju.edu.cn/passport/v1/public/authConfig?clientType=SDPBrowserClient&platform=Mac&lang=en-US&mod=1' \
+  -H 'User-Agent: Mozilla/5.0 ... Chrome/138.0'
+```
+
+## 阶段二：验短信
+
+拿到手机验证码后：
+
+```
+POST /passport/v1/auth/sms?action=checkcode&clientType=SDPBrowserClient&platform=Mac&lang=en-US
+```
+
+头带 `x-csrf-token`，body：
+
+```json
+{
+  "authId": "<阶段一的 authId>",
+  "code": "<短信验证码>",
+  "isPrevEffect": false,
+  "skipSecondaryAuth": "0",
+  "taskId": ""
+}
+```
+
+`code == 0` 后，会话 cookie jar 里出现 `ztna.nju.edu.cn` `/` 的 **`sid`**。`sid` 就是 Web VPN 会话标识，之后带着它 + 域名改写访问校内站点即可。
+
+<Note>
+两阶段之间可以把整份 cookie jar（含 CASTGC 换来的中间态）、`csrf_token`、`auth_id` 序列化存盘，收到短信后再恢复继续。发短信和验短信不必在同一个进程里。
+</Note>
+
+## 探活
+
+带 `sid` 实地访问一个代理域（如 `https://www-nju-edu-cn-s.atrust.nju.edu.cn/`），最终 host 还在 `*.atrust.nju.edu.cn` 就是有效；掉回 `authserver.nju.edu.cn` 说明会话过期，重登。

@@ -1,0 +1,111 @@
+---
+title: 统一认证
+description: authserver.nju.edu.cn 登录：隐藏字段、密码 AES、滑块验证码、拿 CASTGC。
+---
+
+**非官方**。这是南大统一身份认证 `authserver.nju.edu.cn` 网页登录时实际打的请求。登录成功后拿到的 `CASTGC` 是所有需登录系统的唯一主凭证：ehall、Web VPN、体育场馆都从它换各自的会话。
+
+密码加密和滑块验证码这两步是网页前端 JS 做的，这里把它还原成接口 + 算法。**不是**鼓励绕过验证码，只是记录形状。会变，没有 SLA。不要贴真实账号密码。
+
+## 顺序
+
+1. `GET /authserver/login` 取登录页，解析隐藏字段。
+2. 过滑块验证码（下面「验证码」一节）。
+3. `POST /authserver/login` 提交表单，成功后从 cookie 里读 `CASTGC`。
+4. 之后带 `Cookie: CASTGC=...`，靠 CAS 单点登录在各子系统自动换 cookie（ehall 的 `MOD_AUTH_CAS` 等，浏览器/客户端跟着 302 就会自动收下，不用手动设）。
+
+## 取登录页隐藏字段
+
+登录表单是 `form#pwdFromId`。把它里面所有 `<input>` 收集成键值对：key 取 `id`，没有 `id` 再取 `name`，value 取 `value`。
+
+两个关键字段：
+
+| 字段 | 用途 |
+| --- | --- |
+| `execution` | CAS 流程票，原样回传 |
+| `pwdEncryptSalt` | 密码加密的 AES key（16 字节）。**只用来加密，不提交** |
+
+其余隐藏字段（`lt`、`_eventId` 之类，随版本变）原样带回。
+
+```bash
+curl -sS 'https://authserver.nju.edu.cn/authserver/login' \
+  -H 'User-Agent: Mozilla/5.0'
+```
+
+## 密码加密
+
+网页用 AES 把密码加密后再提交。参数：
+
+- **算法**：AES-128-CBC，PKCS7 padding，输出 Base64。
+- **key**：登录页给的 `pwdEncryptSalt`，必须 16 字节。
+- **IV**：固定 16 个字符 `a`（即 `aaaaaaaaaaaaaaaa`）。
+- **明文**：`"a" × 64 + 真实密码`。前面补 64 个 `a`，服务端只取后半段。
+
+`pwdEncryptSalt` 从表单里拿出来当 key，不要再作为字段提交。
+
+## 提交登录
+
+`POST /authserver/login`，`application/x-www-form-urlencoded`。字段 = 上一步收集的全部隐藏字段（去掉 `pwdEncryptSalt`）再加：
+
+| 字段 | 值 |
+| --- | --- |
+| `username` | 学号 / 工号 |
+| `password` | 上面加密后的 Base64 |
+| `captcha` | 空字符串 |
+| `dllt` | `mobileLogin` |
+
+成功的判据：响应的 `Set-Cookie` 里出现作用域 `authserver.nju.edu.cn` `/authserver` 的 `CASTGC`。取不到就去页面里找错误提示（`div#pwdLoginDiv span#showErrorTip` 或 `form#casLoginForm span.auth_error`）。
+
+```bash
+curl -sS -X POST 'https://authserver.nju.edu.cn/authserver/login' \
+  -H 'User-Agent: Mozilla/5.0' \
+  -H 'Origin: https://authserver.nju.edu.cn' \
+  -H 'Referer: https://authserver.nju.edu.cn/authserver/login' \
+  --data-urlencode 'execution=e1s1' \
+  --data-urlencode 'username=000000000' \
+  --data-urlencode 'password=<AES-Base64>' \
+  --data-urlencode 'captcha=' \
+  --data-urlencode 'dllt=mobileLogin'
+```
+
+## 验证码
+
+滑块（拼图缺口）验证码，三个 `.htl` 接口：
+
+| 步骤 | 请求 | 说明 |
+| --- | --- | --- |
+| 初始化 | `GET /authserver/common/toSliderCaptcha.htl` | 建会话 |
+| 取图 | `GET /authserver/common/openSliderCaptcha.htl` | 返回 JSON `{bigImage, smallImage}`，都是 Base64 图片 |
+| 校验 | `POST /authserver/common/verifySliderCaptcha.htl` | form 带 `sign`，返回 `{errorCode, errorMsg}`，`errorMsg == "success"` 才算过 |
+
+算法（前端 JS 还原）：
+
+1. 找缺口：在 `bigImage` 上定位 `smallImage` 缺口的 x 坐标 `x1`（客户端图像匹配，如 ddddocr 的 `slide_match`）。
+2. 换算位移：`moveLength = x1 × 280 / bigImage 实际宽度`。画布宽固定 `280`。
+3. 造轨迹：一串 `{a: x位移, b: y抖动(-1~1), c: 该点耗时ms}`，缓动到 `moveLength`，末点 `b=0`。
+4. 签名：`sign = AES(JSON(轨迹), key = smallImage 解码后的末 16 字节)`。**AES 参数和密码加密同一套**（AES-128-CBC / PKCS7 / IV 十六个 `a` / 明文前补 64 个 `a`），输出 Base64。
+5. 按轨迹总耗时 sleep 一下再提交，`POST verifySliderCaptcha.htl` 带 `sign`。
+
+轨迹 JSON 形状：
+
+```json
+{
+  "canvasLength": 280,
+  "moveLength": 123.75,
+  "tracks": [
+    { "a": 5, "b": 0, "c": 60 },
+    { "a": 40, "b": 1, "c": 33 },
+    { "a": 123.75, "b": 0, "c": 520 }
+  ]
+}
+```
+
+失败可以重新 `openSliderCaptcha.htl` 换一张图重试。
+
+## CASTGC 怎么流转
+
+`CASTGC` 只挂在 `authserver.nju.edu.cn` 域。访问某个子系统时会 302 到 `authserver/login?service=<子系统回调>`，带着 `CASTGC` 就直接签发一次性 `ticket` 回跳，子系统校验 `ticket` 后自己 `Set-Cookie`（ehall 是 `MOD_AUTH_CAS`）。所以只要 cookie jar 里有 `CASTGC` 且跟随重定向，各子系统的会话 cookie 会自动到手。
+
+- ehall 应用：拿到 `MOD_AUTH_CAS` 后还要 `appShow` + `changeAppRole`，见 [ehall 会话](/auth)。
+- 校外访问：走 [Web VPN](/webvpn)。
+- 体育场馆：另一套 OAuth + 请求签名，见 [体育场馆](/openapi/venue)。
