@@ -1,0 +1,14 @@
+{
+  "name": "nju-openapi-tui",
+  "private": true,
+  "type": "module",
+  "module": "browse.ts",
+  "scripts": {
+    "start": "bun run browse.ts",
+    "list": "bun run browse.ts --list"
+  },
+  "dependencies": {
+    "@opentui/core": "^0.5.8",
+    "yaml": "^2.9.0"
+  }
+}
