@@ -1,0 +1,61 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "aspen",
+  "name": "nju-openapi",
+  "colors": {
+    "primary": "#3D4F7A",
+    "light": "#C5D0E8",
+    "dark": "#1B2438"
+  },
+  "favicon": "/favicon.svg",
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "api": {
+    "playground": {
+      "display": "simple",
+      "proxy": false
+    }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "教务",
+        "groups": [
+          {
+            "group": "说明",
+            "pages": ["index", "auth"]
+          },
+          {
+            "group": "成绩查询",
+            "openapi": "openapi/cjcx.yaml"
+          },
+          {
+            "group": "我的课表",
+            "openapi": "openapi/wdkb.yaml"
+          },
+          {
+            "group": "本-课表查询",
+            "openapi": "openapi/kcbcx.yaml"
+          },
+          {
+            "group": "培养方案",
+            "openapi": "openapi/qxfacx.yaml"
+          }
+        ]
+      }
+    ]
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/soundadam/nju-openapi"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/soundadam/nju-openapi"
+    }
+  }
+}

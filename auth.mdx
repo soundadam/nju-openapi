@@ -1,0 +1,69 @@
+---
+title: 认证
+description: CASTGC → appShow → 应用 index → changeAppRole。没有这一串，modules/*.do 会 302 或 403。
+---
+
+学校对学生没有公开的官方教务 API 文档。`esop.nju.edu.cn` 能力开放平台面向教职工立项，不要当成学生接口源。
+
+nju-cli 的 `login --test` 经常误报 not logged in；ehall 请求仍可能可用。以实际 `modules/*.do` 是否返回 JSON 为准。
+
+## 骨架
+
+1. `GET` / `POST` `https://authserver.nju.edu.cn/authserver/login`  
+   有滑块验证码。nju-cli 会解。成功后 cookie 里有 `CASTGC`（域是 `authserver.nju.edu.cn`）。
+2. `GET https://ehall.nju.edu.cn/appShow?appId={APP_ID}`  
+   跟跳转，把统一认证态换成 ehall / ehallapp 业务 cookie。`CASTGC` 本身不能当 ehall 会话用。
+3. `GET https://ehallapp.nju.edu.cn/jwapp/sys/{app}/*default/index.do?_roleId={ROLE_ID}&EMAP_LANG=zh&THEME=`  
+   打开应用页。
+4. `changeAppRole`：每个应用一份，**方法不一致**。
+
+| 应用 | 方法 | URL | 额外 form |
+| --- | --- | --- | --- |
+| `cjcx` | GET | `/jwapp/sys/funauthapp/api/changeAppRole/cjcx/{roleId}.do` | 无 |
+| `wdkb` | GET | `/jwapp/sys/funauthapp/api/changeAppRole/wdkb/{roleId}.do` | 无 |
+| `kcbcx` | POST | `/jwapp/sys/funauthapp/api/changeAppRole/kcbcx/{roleId}.do` | `selectedRoleId` |
+| `qxfacx` | POST | `/jwapp/sys/funauthapp/api/changeAppRole/qxfacx/{roleId}.do` | `selectedRoleId` |
+
+培养方案查询有多角色选择页。只打 `appShow` 会停在 `select_role.html`，直接打接口会 302；只打开 index 会缺授权、403。必须带 `_roleId` 进应用页，再 `changeAppRole` 切到本科学生组。
+
+## 常量（与 nju-cli v1.6 一致）
+
+| 应用 | appId | 默认 roleId | 源码 |
+| --- | --- | --- | --- |
+| 成绩查询 `cjcx` | `4768574631264620` | `20230211151103310` | `crates/ehall/src/grade_query.rs` |
+| 我的课表 `wdkb` | `4770397878132218` | `20230211151103310` | `crates/ehall/src/my_course_schedule.rs` |
+| 本-课表查询 `kcbcx` | `4766960573884517` | `20220913102717892` | `crates/ehall/src/course_schedule.rs` |
+| 本-培养方案查询 `qxfacx` | `4766860087431764` | `20220913102717892` | `crates/ehall/src/training_program.rs` |
+
+免修不免考是另一个应用 `mtxkbl`（appId `4792812354642924`），第一刀不收录。它的申请接口会写入，不要在文档站试打。
+
+## OpenAPI 里的 security
+
+各 yaml 的 `securitySchemes` 用 cookie `CASTGC` 作占位，方便读 spec。真正发 `ehallapp` 请求时，浏览器还带上 `appShow` 之后的业务 cookie。Mintlify Playground 是 simple、无代理，不会替你提交这些 cookie。
+
+## curl 示例（只演示形状）
+
+把 `{CASTGC}` 换成你自己的值。不要把 cookie 提交进 git 或 Issue。
+
+```sh
+# 1. 已有 CASTGC 时，打开成绩查询
+curl -sS -L -c cookies.txt -b "CASTGC={CASTGC}" \
+  "https://ehall.nju.edu.cn/appShow?appId=4768574631264620"
+
+curl -sS -L -b cookies.txt -c cookies.txt \
+  "https://ehallapp.nju.edu.cn/jwapp/sys/cjcx/*default/index.do?_roleId=20230211151103310&EMAP_LANG=zh&THEME="
+
+curl -sS -L -b cookies.txt \
+  "https://ehallapp.nju.edu.cn/jwapp/sys/funauthapp/api/changeAppRole/cjcx/20230211151103310.do"
+
+# 2. 然后才能打 modules
+curl -sS -b cookies.txt \
+  -H "Content-Type: application/x-www-form-urlencoded; charset=UTF-8" \
+  --data-urlencode 'querySetting=[{"name":"SHOWMAXCJ","caption":"显示最高成绩","linkOpt":"AND","builderList":"cbl_m_List","builder":"m_value_equal","value":"0","value_display":"否"},{"name":"CJXZ","linkOpt":"AND","builder":"m_value_equal","value":"0,4,5,9"}]' \
+  --data-urlencode '*order=-XNXQDM,+KCH,+KCXZ' \
+  --data-urlencode 'pageNumber=1' \
+  --data-urlencode 'pageSize=10' \
+  "https://ehallapp.nju.edu.cn/jwapp/sys/cjcx/modules/cjcx/cxxscjd.do"
+```
+
+对照实现：`nju-cli login` 然后 `nju-cli ehall grades list`。

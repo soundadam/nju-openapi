@@ -1,0 +1,67 @@
+---
+title: 这不是官方 API
+description: 南京大学 ehall 教务网页内部接口的非官方 OpenAPI。会变，没有 SLA。
+---
+
+<Warning>
+这是对浏览器里已经在打的 `*.do` / EMAP 接口的逆向记录，**不是**学校发布的官方教务 API，也**不是** nju-cli 外包的 HTTP 网关。字段、路径、角色随时会改。不要拿它当稳定契约，不要声称官方、稳定或有 SLA。
+</Warning>
+
+对照实现是 [nju-cli](https://github.com/nju-cli/nju-cli) v1.6 的 `crates/ehall/`。本机查询用 nju-cli；这里只描述请求长什么样。
+
+## 范围（第一刀）
+
+只覆盖 **ehall 教务应用**（`ehallapp.nju.edu.cn/jwapp`），四个 nju-cli 已经实现的应用：
+
+| 应用 | 前缀 | appId | 默认 roleId | nju-cli |
+| --- | --- | --- | --- | --- |
+| 成绩查询 | `cjcx` | `4768574631264620` | `20230211151103310` | `ehall grades` |
+| 我的课表 | `wdkb` | `4770397878132218` | `20230211151103310` | `ehall my-course-schedule` |
+| 本-课表查询 | `kcbcx` | `4766960573884517` | `20220913102717892` | `ehall all-undergraduate-courses` |
+| 本-培养方案查询 | `qxfacx` | `4766860087431764` | `20220913102717892` | `ehall training-program` |
+
+「教务」在这里指这些 ehall 应用，**不是** `jw.nju.edu.cn` 通知站。通知站是 HTML 列表，不适合当第一批 OpenAPI。
+
+## 明确不做
+
+- `jw.nju.edu.cn` 通知 / 校历 / 手册
+- `xk.nju.edu.cn` 选课平台
+- 免修不免考申请写接口（`mtxkbl`，另一个应用）
+- 团委、场馆、研招、交换生、信息化、科院、资产
+- 把任何人的成绩或课表贴进文档
+- 在文档站 Playground 里代理打教务生产
+
+## Playground
+
+站点把 Playground 设成 **simple**，并且关掉代理。页面上可以复制路径和 curl，**不会**替你带 cookie 打 `ehallapp`。学校系统不是你的 API；真实试打留在本机：
+
+```sh
+nju-cli ehall grades list
+nju-cli ehall my-course-schedule list
+nju-cli ehall all-undergraduate-courses list --page-size 5
+nju-cli ehall training-program list --name 计算机
+```
+
+## 共同信封
+
+几乎所有 list 接口都是 **POST** `application/x-www-form-urlencoded`。筛选条件放在 `querySetting`（JSON 数组的字符串），分页是 `pageNumber` / `pageSize`，排序是 `*order`。
+
+成功时 HTTP 仍是 200，应用层看 JSON：
+
+```json
+{
+  "code": "0",
+  "datas": {
+    "ACTION": {
+      "totalSize": 1,
+      "pageNumber": 1,
+      "pageSize": 10,
+      "rows": []
+    }
+  }
+}
+```
+
+`ACTION` 等于 URL 文件名去掉 `.do`（例如 `cxxscjd.do` → `datas.cxxscjd`）。`code` 不是 `"0"` 就是失败。行对象用教务原字段名：`KCH`、`KCM`、`XF`、`XNXQDM`。
+
+加接口靠抓包，不要猜。流程见 nju-cli 的 `add-new-api` skill。

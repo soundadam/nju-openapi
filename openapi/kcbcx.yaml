@@ -1,0 +1,371 @@
+openapi: 3.1.0
+info:
+  title: 本-课表查询 kcbcx
+  version: 0.1.0
+  summary: ehall 全校本科课表
+  description: |
+    非官方。服务大厅「本-课表查询」。
+
+    列表 action `qxfbkccx`。排序默认 `+KKDWDM,+KCH,+KXH`。
+    Playground 为 simple。对照：`nju-cli ehall all-undergraduate-courses`。
+  x-source: nju-cli crates/ehall/src/course_schedule.rs
+  x-nju-cli: v1.6
+  x-captured: "2026-08-24"
+servers:
+  - url: https://ehallapp.nju.edu.cn
+security:
+  - ehallCookies: []
+tags:
+  - name: 会话
+  - name: 学期
+  - name: 课表
+paths:
+  /appShow:
+    servers:
+      - url: https://ehall.nju.edu.cn
+    get:
+      tags: [会话]
+      operationId: kcbcxAppShow
+      summary: 打开本-课表查询
+      parameters:
+        - name: appId
+          in: query
+          required: true
+          schema:
+            type: string
+            const: "4766960573884517"
+      responses:
+        "200":
+          description: 应用入口
+        "302":
+          description: 跳转
+
+  "/jwapp/sys/kcbcx/*default/index.do":
+    get:
+      tags: [会话]
+      operationId: kcbcxIndex
+      summary: 本-课表查询应用首页
+      parameters:
+        - name: _roleId
+          in: query
+          schema:
+            type: string
+            default: "20220913102717892"
+        - name: EMAP_LANG
+          in: query
+          schema:
+            type: string
+            default: zh
+        - name: THEME
+          in: query
+          schema:
+            type: string
+            default: ""
+      responses:
+        "200":
+          description: 应用页 HTML
+
+  /jwapp/sys/funauthapp/api/changeAppRole/kcbcx/{roleId}.do:
+    post:
+      tags: [会话]
+      operationId: kcbcxChangeAppRole
+      summary: 切换本-课表查询角色
+      description: |
+        nju-cli 对 kcbcx 用 POST，路径带 roleId，form 再带 `selectedRoleId`。
+        默认本科学生组 `20220913102717892`。
+      parameters:
+        - name: roleId
+          in: path
+          required: true
+          schema:
+            type: string
+            default: "20220913102717892"
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                selectedRoleId:
+                  type: string
+                  default: "20220913102717892"
+      responses:
+        "200":
+          description: 角色已切换
+
+  /jwapp/sys/kcbcx/modules/bjkcb/dqxnxq.do:
+    post:
+      tags: [学期]
+      operationId: kcbcxCurrentTerm
+      summary: 当前学期
+      description: action `dqxnxq`。row 用 `DM` / `MC`。
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: 信封 datas.dqxnxq
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentTermEnvelope"
+              examples:
+                ok:
+                  value:
+                    code: "0"
+                    datas:
+                      dqxnxq:
+                        totalSize: 1
+                        rows:
+                          - DM: "2025-2026-1"
+                            MC: "2025-2026学年第一学期"
+
+  /jwapp/sys/kcbcx/modules/qxkcb/qxfbkccx.do:
+    post:
+      tags: [课表]
+      operationId: kcbcxListCourses
+      summary: 全校本科课表
+      description: |
+        action `qxfbkccx`。nju-cli 默认 form：
+
+        - `CXYH=true`
+        - `querySetting` JSON 字符串
+        - `*order=+KKDWDM,+KCH,+KXH`
+        - `pageNumber` / `pageSize`
+
+        `querySetting` 固定会带学期 `XNXQDM`、任务状态 `RWZTDM=1` 或 isNull、`CXYH=true`、以及 `*order`。
+        其它筛选写进同一数组。`KCH`/`KCM`/`JXBMC`/`KXH`/`SKJS`/`YPSJDD`/`SKJAS`/`SKBJ` 用 `include`；
+        `PKDWDM`/`KKDWDM`/`XNXQDM`/`XGXKLBDM`/`SFTK` 用 `m_value_equal`。
+
+        `KSJC`、`JSJC`、`SKZC`、`SKXQ`、`JXLDM` 还会再作为顶级 form 字段重复提交。
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                CXYH:
+                  type: string
+                  default: "true"
+                querySetting:
+                  type: string
+                "*order":
+                  type: string
+                  default: "+KKDWDM,+KCH,+KXH"
+                pageNumber:
+                  type: string
+                  default: "1"
+                pageSize:
+                  type: string
+                  default: "20"
+                KSJC:
+                  type: string
+                  description: 开始节次（顶级字段）
+                JSJC:
+                  type: string
+                  description: 结束节次
+                SKZC:
+                  type: string
+                  description: 上课周次
+                SKXQ:
+                  type: string
+                  description: 上课星期
+                JXLDM:
+                  type: string
+                  description: 教学楼代码
+            examples:
+              byName:
+                summary: 按课程名
+                value:
+                  CXYH: "true"
+                  querySetting: '[{"name":"XNXQDM","value":"2025-2026-1","linkOpt":"and","builder":"equal"},[{"name":"RWZTDM","value":"1","linkOpt":"and","builder":"equal"},{"name":"RWZTDM","linkOpt":"or","builder":"isNull"}],{"name":"CXYH","value":true,"linkOpt":"and","builder":"equal"},{"name":"*order","value":"+KKDWDM,+KCH,+KXH","linkOpt":"and","builder":"m_value_equal"},{"name":"KCM","value":"高等数学","linkOpt":"and","builder":"include"}]'
+                  "*order": "+KKDWDM,+KCH,+KXH"
+                  pageNumber: "1"
+                  pageSize: "20"
+      responses:
+        "200":
+          description: 信封 datas.qxfbkccx
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CourseListEnvelope"
+              examples:
+                ok:
+                  value:
+                    code: "0"
+                    datas:
+                      qxfbkccx:
+                        totalSize: 1
+                        pageNumber: 1
+                        pageSize: 20
+                        rows:
+                          - WID: "example-wid"
+                            JXBID: "2025-2026-1-00000000H-001"
+                            KCH: "00000000H"
+                            KCM: "示例课程"
+                            KXH: "001"
+                            JXBMC: "示例课程-001"
+                            SKJS: "示例教师"
+                            YPSJDD: "1-16周 星期一 3-4节 仙林校区 示例楼101"
+                            SKXQ: "1"
+                            SKJC: "3-4"
+                            SKZC: "1-16"
+                            SKJAS: "示例楼101"
+                            XXXQDM: "3"
+                            XXXQDM_DISPLAY: "仙林校区"
+                            XF: "4"
+                            XS: "64"
+                            PKDWDM: "400000"
+                            PKDWDM_DISPLAY: "示例院系"
+                            XKZRS: "120"
+                            XNXQDM: "2025-2026-1"
+                            XNXQDM_DISPLAY: "2025-2026学年第一学期"
+                            TKJG: null
+                            SKBJ: null
+                            TXKCLB: null
+                            TXKCLB_DISPLAY: null
+                            XGXKLBDM: null
+                            XGXKLBDM_DISPLAY: null
+                            SFTK: "0"
+                            SFTK_DISPLAY: "否"
+
+components:
+  securitySchemes:
+    ehallCookies:
+      type: apiKey
+      in: cookie
+      name: CASTGC
+      description: 占位。真正请求需要 appShow 之后的 ehallapp 会话 cookie。见认证一章。
+  schemas:
+    CurrentTerm:
+      type: object
+      additionalProperties: true
+      required: [DM, MC]
+      properties:
+        DM:
+          type: string
+        MC:
+          type: string
+    CourseSchedule:
+      type: object
+      additionalProperties: true
+      required: [WID, JXBID, KCH, KCM]
+      properties:
+        WID:
+          type: string
+        JXBID:
+          type: string
+        KCH:
+          type: string
+        KCM:
+          type: string
+        KXH:
+          type: [string, "null"]
+        JXBMC:
+          type: [string, "null"]
+        SKJS:
+          type: [string, "null"]
+        YPSJDD:
+          type: [string, "null"]
+          description: 已排时间地点
+        SKXQ:
+          type: [string, "null"]
+        SKJC:
+          type: [string, "null"]
+        SKZC:
+          type: [string, "null"]
+        SKJAS:
+          type: [string, "null"]
+        XXXQDM:
+          type: [string, "null"]
+        XXXQDM_DISPLAY:
+          type: [string, "null"]
+        XF:
+          type: [string, number, "null"]
+        XS:
+          type: [string, number, "null"]
+        PKDWDM:
+          type: [string, "null"]
+          description: 排课单位。筛选/排序里还会出现 KKDWDM（开课单位）
+        PKDWDM_DISPLAY:
+          type: [string, "null"]
+        KKDWDM:
+          type: [string, "null"]
+        KKDWDM_DISPLAY:
+          type: [string, "null"]
+        XKZRS:
+          type: [string, number, "null"]
+          description: 选课人数
+        XNXQDM:
+          type: [string, "null"]
+        XNXQDM_DISPLAY:
+          type: [string, "null"]
+        TKJG:
+          type: [string, "null"]
+        SKBJ:
+          type: [string, "null"]
+        TXKCLB:
+          type: [string, "null"]
+        TXKCLB_DISPLAY:
+          type: [string, "null"]
+        XGXKLBDM:
+          type: [string, "null"]
+        XGXKLBDM_DISPLAY:
+          type: [string, "null"]
+        SFTK:
+          type: [string, "null"]
+        SFTK_DISPLAY:
+          type: [string, "null"]
+    EhallPage:
+      type: object
+      properties:
+        totalSize:
+          type: integer
+        pageNumber:
+          type: integer
+        pageSize:
+          type: integer
+        rows:
+          type: array
+          items: {}
+        extParams: {}
+    CurrentTermEnvelope:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "0"
+        datas:
+          type: object
+          properties:
+            dqxnxq:
+              allOf:
+                - $ref: "#/components/schemas/EhallPage"
+                - type: object
+                  properties:
+                    rows:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/CurrentTerm"
+    CourseListEnvelope:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "0"
+        datas:
+          type: object
+          properties:
+            qxfbkccx:
+              allOf:
+                - $ref: "#/components/schemas/EhallPage"
+                - type: object
+                  properties:
+                    rows:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/CourseSchedule"

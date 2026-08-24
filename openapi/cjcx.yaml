@@ -1,0 +1,500 @@
+openapi: 3.1.0
+info:
+  title: 成绩查询 cjcx
+  version: "0.1.0"
+  summary: ehall 成绩查询应用的网页内部接口。非官方，会变。
+  description: |
+    应用「成绩查询」。先完成 [认证](/auth)（appShow → index → changeAppRole），再打 `modules/cjcx/*.do`。
+
+    四六级和体测走同一个 `cxsljcj.do`，用 `querySetting` 里的 `KSXM` 区分：`CET4,CET6` 或 `01`。
+  x-source: nju-cli crates/ehall/src/grade_query.rs
+  x-captured: "2026-08-24"
+  x-nju-cli: v1.6
+  x-appId: "4768574631264620"
+  x-defaultRoleId: "20230211151103310"
+
+servers:
+  - url: https://ehallapp.nju.edu.cn
+    description: ehall 教务应用
+
+security:
+  - ehallCookies: []
+
+tags:
+  - name: 会话
+  - name: 学期
+  - name: 成绩
+
+paths:
+  /appShow:
+    get:
+      tags: [会话]
+      operationId: cjcxAppShow
+      summary: 打开成绩查询应用入口
+      description: 跟跳转，把 CASTGC 换成 ehallapp 业务 cookie。
+      servers:
+        - url: https://ehall.nju.edu.cn
+      parameters:
+        - name: appId
+          in: query
+          required: true
+          schema:
+            type: string
+            const: "4768574631264620"
+          example: "4768574631264620"
+      responses:
+        "200":
+          description: HTML 或跳转到应用。需要跟随重定向并保存 cookie。
+        "302":
+          description: 未登录时回到统一认证。
+
+  "/jwapp/sys/cjcx/*default/index.do":
+    get:
+      tags: [会话]
+      operationId: cjcxIndex
+      summary: 打开成绩查询应用页
+      parameters:
+        - $ref: "#/components/parameters/roleIdQuery"
+        - $ref: "#/components/parameters/emapLang"
+        - $ref: "#/components/parameters/theme"
+      responses:
+        "200":
+          description: 应用 HTML。
+        "403":
+          description: 未 changeAppRole 或缺会话。
+
+  /jwapp/sys/funauthapp/api/changeAppRole/cjcx/{roleId}.do:
+    get:
+      tags: [会话]
+      operationId: cjcxChangeAppRole
+      summary: 切换成绩查询角色
+      description: nju-cli 对 cjcx 用 GET，roleId 在路径里。默认本科学生组 `20230211151103310`。
+      parameters:
+        - $ref: "#/components/parameters/roleIdPath"
+      responses:
+        "200":
+          description: 角色切换完成。
+
+  /jwapp/sys/cjcx/modules/cjcx/cxdqxnxqdm.do:
+    post:
+      tags: [学期]
+      operationId: cjcxCurrentTerm
+      summary: 当前学年学期
+      description: |
+        空 form。信封 action 为 `cxdqxnxqdm`。对照 `nju-cli ehall grades terms` 会先打这个，再打代码表。
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: EMAP 信封。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentTermEnvelope"
+              example:
+                code: "0"
+                datas:
+                  cxdqxnxqdm:
+                    totalSize: 1
+                    pageNumber: 1
+                    pageSize: 1
+                    rows:
+                      - XNXQDM: "2025-2026-2"
+                        XNXQDM_DISPLAY: "2025-2026学年第二学期"
+
+  /jwapp/code/1daca2c6-abd2-4278-af49-5af038db0926.do:
+    get:
+      tags: [学期]
+      operationId: cjcxRecentTerms
+      summary: 近期学年学期代码表
+      description: |
+        GET。nju-cli 带缓存击穿参数 `_`（毫秒时间戳）。信封 action 为 `code`，行是 `{id, name}`，对应 `XNXQDM` / `XNXQDM_DISPLAY`。
+      parameters:
+        - name: _
+          in: query
+          required: false
+          schema:
+            type: string
+          description: 缓存击穿，毫秒时间戳。
+      responses:
+        "200":
+          description: 代码表信封。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CodeTermEnvelope"
+              example:
+                code: "0"
+                datas:
+                  code:
+                    rows:
+                      - id: "2025-2026-2"
+                        name: "2025-2026学年第二学期"
+
+  /jwapp/sys/cjcx/modules/cjcx/cxxscjd.do:
+    post:
+      tags: [成绩]
+      operationId: cjcxListGrades
+      summary: 课程成绩分页
+      description: |
+        对照 `nju-cli ehall grades list` / `download`。
+
+        `querySetting` 是 JSON 数组字符串。nju-cli 默认带上：
+
+        - `SHOWMAXCJ`：是否显示最高成绩，`0` / `1`
+        - `CJXZ`：成绩性质，默认 `0,4,5,9`
+        - 可选 `XNXQDM`（`m_value_equal`，逗号拼接多个学期）
+        - 可选 `KCM` / `KCH`（`include`）
+        - 可选 `SFJG`（`equal`，及格 `1` / 不及格 `0`）
+
+        `*order` 默认 `-XNXQDM,+KCH,+KCXZ`。
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/PagedQueryForm"
+            example:
+              querySetting: '[{"name":"SHOWMAXCJ","caption":"显示最高成绩","linkOpt":"AND","builderList":"cbl_m_List","builder":"m_value_equal","value":"0","value_display":"否"},{"name":"CJXZ","linkOpt":"AND","builder":"m_value_equal","value":"0,4,5,9"}]'
+              "*order": "-XNXQDM,+KCH,+KCXZ"
+              pageNumber: "1"
+              pageSize: "10"
+      responses:
+        "200":
+          description: 成绩页。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GradeListEnvelope"
+              example:
+                code: "0"
+                datas:
+                  cxxscjd:
+                    totalSize: 1
+                    pageNumber: 1
+                    pageSize: 10
+                    rows:
+                      - XH: "000000000"
+                        XNXQDM: "2025-2026-1"
+                        XNXQDM_DISPLAY: "2025-2026学年第一学期"
+                        KCH: "00000000H"
+                        KCM: "示例课程"
+                        YWKCM: "Example Course"
+                        XF: "2"
+                        KCXZDM: "01"
+                        KCXZDM_DISPLAY: "必修"
+                        ZCJ: "85"
+                        SFJG: "1"
+                        SFJG_DISPLAY: "及格"
+                        CJBZBS: null
+
+  /jwapp/sys/cjcx/modules/cjcx/cxsljcj.do:
+    post:
+      tags: [成绩]
+      operationId: cjcxListCetOrFitness
+      summary: 四六级 / 体测成绩分页
+      description: |
+        对照 `nju-cli ehall grades cet` 和 `ehall grades fitness`。同一 URL。
+
+        `querySetting` 里 `KSXM` 用 `m_value_equal`：
+
+        - 四六级默认 `CET4,CET6`
+        - 体测 `01`
+
+        可选 `XNXQDM`。`*order` 默认 `+YXDM,+XH,-KSSJ`。空筛选时 nju-cli 仍会带上 `KSXM`。
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/PagedQueryForm"
+            examples:
+              cet:
+                summary: 四六级
+                value:
+                  querySetting: '[{"name":"KSXM","value":"CET4,CET6","linkOpt":"and","builder":"m_value_equal"}]'
+                  "*order": "+YXDM,+XH,-KSSJ"
+                  pageNumber: "1"
+                  pageSize: "10"
+              fitness:
+                summary: 体测
+                value:
+                  querySetting: '[{"name":"KSXM","value":"01","linkOpt":"and","builder":"m_value_equal"}]'
+                  "*order": "+YXDM,+XH,-KSSJ"
+                  pageNumber: "1"
+                  pageSize: "10"
+      responses:
+        "200":
+          description: 考试成绩页。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CetGradeListEnvelope"
+              example:
+                code: "0"
+                datas:
+                  cxsljcj:
+                    totalSize: 1
+                    pageNumber: 1
+                    pageSize: 10
+                    rows:
+                      - WID: "example-wid"
+                        XH: "000000000"
+                        XM: "示例"
+                        XNXQDM: "2023-2024-1"
+                        XNXQDM_DISPLAY: "2023-2024学年第一学期"
+                        KSXM: "CET4"
+                        KSXM_DISPLAY: "大学英语四级"
+                        ZCJ: "500"
+                        SFTG: "通过"
+                        KSSJ: "2023-12-16"
+                        YXDM: "400290"
+                        YXDM_DISPLAY: "示例院系"
+                        DRSJ: null
+                        DRR: null
+                        DRRXM: null
+                        BZ: null
+
+components:
+  securitySchemes:
+    ehallCookies:
+      type: apiKey
+      in: cookie
+      name: CASTGC
+      description: |
+        占位。CASTGC 在 authserver.nju.edu.cn。打本接口前要先 appShow，实际生效的是 ehallapp 业务 cookie。Playground 不会代打生产。
+
+  parameters:
+    roleIdQuery:
+      name: _roleId
+      in: query
+      required: true
+      schema:
+        type: string
+        default: "20230211151103310"
+      example: "20230211151103310"
+    emapLang:
+      name: EMAP_LANG
+      in: query
+      schema:
+        type: string
+        default: zh
+    theme:
+      name: THEME
+      in: query
+      schema:
+        type: string
+        default: ""
+    roleIdPath:
+      name: roleId
+      in: path
+      required: true
+      schema:
+        type: string
+        default: "20230211151103310"
+      example: "20230211151103310"
+
+  schemas:
+    PagedQueryForm:
+      type: object
+      properties:
+        querySetting:
+          type: string
+          description: JSON 数组字符串，EMAP 筛选。
+        "*order":
+          type: string
+        pageNumber:
+          type: string
+          default: "1"
+        pageSize:
+          type: string
+          default: "10"
+      required: [pageNumber, pageSize]
+    Grade:
+      type: object
+      additionalProperties: true
+      required: [XH, XNXQDM, KCH, KCM]
+      properties:
+        XH:
+          type: string
+          description: 学号
+        XNXQDM:
+          type: string
+          description: 学年学期代码，如 2025-2026-1
+        XNXQDM_DISPLAY:
+          type: [string, "null"]
+        KCH:
+          type: string
+          description: 课程号
+        KCM:
+          type: string
+          description: 课程名
+        YWKCM:
+          type: [string, "null"]
+          description: 英文课程名
+        XF:
+          description: 学分
+          type: [string, number, "null"]
+        KCXZDM:
+          type: [string, "null"]
+          description: 课程性质代码
+        KCXZDM_DISPLAY:
+          type: [string, "null"]
+        ZCJ:
+          description: 总成绩
+          type: [string, number, "null"]
+        SFJG:
+          type: [string, "null"]
+          description: 是否及格，1 / 0
+        SFJG_DISPLAY:
+          type: [string, "null"]
+        CJBZBS:
+          description: 成绩单标记
+          type: [string, number, "null"]
+    CetGrade:
+      type: object
+      additionalProperties: true
+      required: [WID, XH, XNXQDM, KSXM, KSXM_DISPLAY]
+      properties:
+        WID:
+          type: string
+        XH:
+          type: string
+        XM:
+          type: [string, "null"]
+        XNXQDM:
+          type: string
+        XNXQDM_DISPLAY:
+          type: [string, "null"]
+        KSXM:
+          type: string
+          description: CET4 / CET6 / 01（体测）
+        KSXM_DISPLAY:
+          type: string
+        ZCJ:
+          type: [string, number, "null"]
+        SFTG:
+          type: [string, "null"]
+        KSSJ:
+          type: [string, "null"]
+        YXDM:
+          type: [string, "null"]
+        YXDM_DISPLAY:
+          type: [string, "null"]
+        DRSJ:
+          type: [string, "null"]
+        DRR:
+          type: [string, "null"]
+        DRRXM:
+          type: [string, "null"]
+        BZ:
+          type: [string, "null"]
+    GradeTerm:
+      type: object
+      additionalProperties: true
+      required: [XNXQDM]
+      properties:
+        XNXQDM:
+          type: string
+        XNXQDM_DISPLAY:
+          type: [string, "null"]
+    CodeTerm:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+        name:
+          type: [string, "null"]
+    Page:
+      type: object
+      required: [totalSize, rows]
+      properties:
+        totalSize:
+          type: integer
+        pageNumber:
+          type: integer
+        pageSize:
+          type: integer
+        rows:
+          type: array
+          items: {}
+        extParams:
+          type: object
+          additionalProperties: true
+    GradeListEnvelope:
+      type: object
+      required: [code, datas]
+      properties:
+        code:
+          type: string
+          example: "0"
+        datas:
+          type: object
+          properties:
+            cxxscjd:
+              allOf:
+                - $ref: "#/components/schemas/Page"
+                - type: object
+                  properties:
+                    rows:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/Grade"
+    CetGradeListEnvelope:
+      type: object
+      required: [code, datas]
+      properties:
+        code:
+          type: string
+        datas:
+          type: object
+          properties:
+            cxsljcj:
+              allOf:
+                - $ref: "#/components/schemas/Page"
+                - type: object
+                  properties:
+                    rows:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/CetGrade"
+    CurrentTermEnvelope:
+      type: object
+      required: [code, datas]
+      properties:
+        code:
+          type: string
+        datas:
+          type: object
+          properties:
+            cxdqxnxqdm:
+              allOf:
+                - $ref: "#/components/schemas/Page"
+                - type: object
+                  properties:
+                    rows:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/GradeTerm"
+    CodeTermEnvelope:
+      type: object
+      required: [code, datas]
+      properties:
+        code:
+          type: string
+        datas:
+          type: object
+          properties:
+            code:
+              type: object
+              properties:
+                rows:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/CodeTerm"
