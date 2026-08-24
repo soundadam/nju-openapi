@@ -1,0 +1,56 @@
+---
+title: 这是什么
+description: 南京大学教务网页在登录后实际打的 HTTP 接口说明。给人和 agent 查功能用。
+---
+
+这是一份**非官方**文档。学校没有发布对应的学生 API 手册。这里记的是 `ehall.nju.edu.cn` / `ehallapp.nju.edu.cn` 上，浏览器登录后会打的请求：路径、form 字段、返回信封、字段名。
+
+用途是查功能：某个列表怎么筛、某张详情怎么取、字段叫什么。不是网关，也不包一层 SDK。请求就是 curl。
+
+Mintlify 站点负责给人读、给 agent 读。Playground 只展示请求形状（`simple`，关代理），不要从文档页打生产。
+
+接口会变。没有 SLA。不要贴真实学号、成绩、课表。
+
+## 范围
+
+「教务」在这里指 ehall 里的 `jwapp`，主机是 `ehallapp.nju.edu.cn`。不是 `jw.nju.edu.cn` 通知站。
+
+目前只写四个应用：
+
+| 应用 | 代码 | 干什么 |
+| --- | --- | --- |
+| 成绩查询 | `cjcx` | 课程成绩、四六级、体测、当前学期、学期代码表 |
+| 我的课表 | `wdkb` | 个人课表、当前学期、课程信息、周次节次 |
+| 本-课表查询 | `kcbcx` | 全校开课列表、教学班详情 |
+| 培养方案查询 | `qxfacx` | 方案、方向、课程、学分、免修 |
+
+不写：选课、通知站 HTML、其它 ehall 应用、培养方案里的写接口。
+
+## 请求长什么样
+
+几乎都是 **POST form**。列表筛选 `querySetting` 是 JSON **数组的字符串**，不是 JSON body。分页是 `pageNumber` / `pageSize`。排序字段名就是 `*order`。
+
+成功时 JSON 信封一般是：
+
+```json
+{ "code": "0", "datas": { "某个.do的名字": { "totalSize": 1, "rows": [] } } }
+```
+
+`code` 是字符串 `"0"`。成绩学期代码表例外：URL 是 UUID `.do`，信封键是 `code`。
+
+示例：
+
+```bash
+curl -sS -X POST 'https://ehallapp.nju.edu.cn/jwapp/sys/cjcx/modules/cjcx/cxxscjd.do' \
+  -H 'Cookie: CASTGC=...' \
+  --data-urlencode 'querySetting=[{"name":"SHOWMAXCJ","caption":"显示最高成绩","linkOpt":"AND","builderList":"cbl_m_List","builder":"m_value_equal","value":"0","value_display":"否"},{"name":"CJXZ","linkOpt":"AND","builder":"m_value_equal","value":"0,4,5,9"}]' \
+  --data-urlencode '*order=-XNXQDM,+KCH,+KCXZ' \
+  --data-urlencode 'pageNumber=1' \
+  --data-urlencode 'pageSize=10'
+```
+
+行字段用教务原名：`KCH`、`KCM`、`XF`、`XNXQDM`。OpenAPI 里的示例行是编的。
+
+## 读文档
+
+先看 [登录](/auth)，再进四个 OpenAPI 页。抓包日期写在各 yaml 的 `x-captured`。

@@ -1,0 +1,584 @@
+openapi: 3.1.0
+info:
+  title: 我的课表 wdkb
+  version: 0.1.0
+  summary: ehall 我的课表 / 学期
+  description: |
+    非官方。服务大厅「我的课表」。
+
+    只收查询接口。免修不免考在另一个应用 `mtxkbl`，写接口不收录。
+
+    `appShow` 见 [登录](/auth)，本文件不重复该路径。
+  x-source: https://ehallapp.nju.edu.cn/jwapp/sys/wdkb
+  x-captured: "2026-08-24"
+  x-appId: "4770397878132218"
+  x-defaultRoleId: "20230211151103310"
+servers:
+  - url: https://ehallapp.nju.edu.cn
+security:
+  - ehallCookies: []
+tags:
+  - name: 会话
+  - name: 学期
+  - name: 课表
+paths:
+  /jwapp/sys/wdkb/{emapDir}/index.do:
+    get:
+      tags: [会话]
+      operationId: wdkbIndex
+      summary: 我的课表应用首页
+      parameters:
+        - $ref: "#/components/parameters/emapDir"
+        - name: _roleId
+          in: query
+          required: true
+          schema:
+            type: string
+            default: "20230211151103310"
+        - name: EMAP_LANG
+          in: query
+          schema:
+            type: string
+            default: zh
+        - name: THEME
+          in: query
+          schema:
+            type: string
+            default: ""
+      responses:
+        "200":
+          description: 应用页 HTML
+
+  /jwapp/sys/funauthapp/api/changeAppRole/wdkb/{roleId}.do:
+    get:
+      tags: [会话]
+      operationId: wdkbChangeAppRole
+      summary: 切换我的课表角色
+      description: GET。默认 roleId `20230211151103310`。
+      parameters:
+        - name: roleId
+          in: path
+          required: true
+          schema:
+            type: string
+            default: "20230211151103310"
+      responses:
+        "200":
+          description: 角色已切换
+
+  /jwapp/sys/wdkb/modules/jshkcb/xnxqcx.do:
+    post:
+      tags: [学期]
+      operationId: wdkbListTerms
+      summary: 学期列表
+      description: |
+        action `xnxqcx`。form 一般只带 `*order=-DM`。row 用 `DM` / `MC`，不是 `XNXQDM`。
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                "*order":
+                  type: string
+                  default: "-DM"
+            examples:
+              default:
+                value:
+                  "*order": "-DM"
+      responses:
+        "200":
+          description: 信封 datas.xnxqcx
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TermListEnvelope"
+              examples:
+                ok:
+                  value:
+                    code: "0"
+                    datas:
+                      xnxqcx:
+                        totalSize: 1
+                        rows:
+                          - DM: "2025-2026-1"
+                            MC: "2025-2026学年第一学期"
+                            XNDM: "2025-2026"
+                            XQDM: "1"
+
+  /jwapp/sys/wdkb/modules/jshkcb/dqxnxq.do:
+    post:
+      tags: [学期]
+      operationId: wdkbCurrentTerm
+      summary: 当前学期
+      description: action `dqxnxq`。空 form。
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: 信封 datas.dqxnxq
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CurrentTermEnvelope"
+              examples:
+                ok:
+                  value:
+                    code: "0"
+                    datas:
+                      dqxnxq:
+                        totalSize: 1
+                        rows:
+                          - DM: "2025-2026-1"
+                            MC: "2025-2026学年第一学期"
+                            XNDM: "2025-2026"
+                            XQDM: "1"
+
+  /jwapp/sys/wdkb/modules/xskcb/cxxsjbxx.do:
+    post:
+      tags: [课表]
+      operationId: wdkbStudentInfo
+      summary: 当前学生基本信息
+      description: action `cxxsjbxx`。空 form，当前学生在 `rows[0]`。
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: 信封 datas.cxxsjbxx
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StudentInfoEnvelope"
+              examples:
+                ok:
+                  value:
+                    code: "0"
+                    datas:
+                      cxxsjbxx:
+                        totalSize: 1
+                        rows:
+                          - XH: "000000000"
+                            XM: "示例"
+
+  /jwapp/sys/wdkb/modules/xskcb/cxxskclb.do:
+    post:
+      tags: [课表]
+      operationId: wdkbListMyCourses
+      summary: 我的课表列表
+      description: |
+        action `cxxskclb`。顶级 form 的 `XNXQDM` 和 `querySetting` 里的同等条件要一起传。
+        form 还有 `pageNumber` / `pageSize`，不传 `*order`。
+        `querySetting` 示例：`[{"name":"XNXQDM","value":"2025-2026-1","linkOpt":"AND","builder":"equal"}]`。
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [XNXQDM, querySetting, pageNumber, pageSize]
+              properties:
+                XNXQDM:
+                  type: string
+                  example: "2025-2026-1"
+                querySetting:
+                  type: string
+                pageNumber:
+                  type: string
+                  default: "1"
+                pageSize:
+                  type: string
+                  default: "10"
+            examples:
+              current:
+                value:
+                  XNXQDM: "2025-2026-1"
+                  querySetting: '[{"name":"XNXQDM","value":"2025-2026-1","linkOpt":"AND","builder":"equal"}]'
+                  pageNumber: "1"
+                  pageSize: "50"
+      responses:
+        "200":
+          description: 信封 datas.cxxskclb
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MyCourseListEnvelope"
+              examples:
+                ok:
+                  value:
+                    code: "0"
+                    datas:
+                      cxxskclb:
+                        totalSize: 1
+                        pageNumber: 1
+                        pageSize: 50
+                        rows:
+                          - KCH: "00000000H"
+                            JXBID: "2025-2026-1-00000000H-001"
+                            JXBMC: "示例课程-001"
+                            KCM: "示例课程"
+                            SKJS: "示例教师"
+                            ZCXQJCDD: "1-16周 星期一 3-4节 示例楼101"
+                            PKDWDM: "400000"
+                            PKDWDM_DISPLAY: "示例院系"
+                            XF: "2"
+                            XKLY: "1"
+                            XKLY_DISPLAY: "主修"
+                            SKSM: null
+                            TKJG: null
+                            QMKSXX: null
+                            QTXX: null
+                            JSHS: null
+                            XNXQDM: "2025-2026-1"
+                            KXH: "001"
+                            SFKT: "0"
+
+  /jwapp/sys/wdkb/modules/xskcb/cxkcxx.do:
+    post:
+      tags: [课表]
+      operationId: wdkbCourseInfo
+      summary: 课程信息
+      description: action `cxkcxx`。form 字段 `KCH`。看某门课详情时会再打这一下。行字段随学期变化，下面是常见键。
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [KCH]
+              properties:
+                KCH:
+                  type: string
+                  example: "00000000H"
+      responses:
+        "200":
+          description: 信封 datas.cxkcxx
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CourseInfoEnvelope"
+              examples:
+                ok:
+                  value:
+                    code: "0"
+                    datas:
+                      cxkcxx:
+                        totalSize: 1
+                        rows:
+                          - KCH: "00000000H"
+                            KCM: "示例课程"
+                            XF: "2"
+                            XS: "32"
+                            KKDWDM: "400000"
+                            KKDWDM_DISPLAY: "示例院系"
+                            KCXZDM: "1"
+                            KCXZDM_DISPLAY: "必修"
+
+  /jwapp/sys/wdkb/modules/xskcb/cxkczjjcxx.do:
+    post:
+      tags: [课表]
+      operationId: wdkbCourseTextbook
+      summary: 课程教材信息
+      description: action `cxkczjjcxx`。form 字段 `KCH`。教材行字段同样是教务原名。
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [KCH]
+              properties:
+                KCH:
+                  type: string
+                  example: "00000000H"
+      responses:
+        "200":
+          description: 信封 datas.cxkczjjcxx
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CourseTextbookEnvelope"
+              examples:
+                ok:
+                  value:
+                    code: "0"
+                    datas:
+                      cxkczjjcxx:
+                        totalSize: 1
+                        rows:
+                          - KCH: "00000000H"
+                            JCMC: "示例教材"
+                            ISBN: "978-7-000-00000-0"
+                            ZZ: "示例作者"
+                            CBS: "示例出版社"
+
+  /jwapp/sys/wdkb/{emapDir}/public/commonpage/kblb/kblbIndexPage.html:
+    get:
+      tags: [课表]
+      operationId: wdkbExamNotesHtml
+      summary: 课表页考试说明 HTML
+      description: |
+        页面底部考试说明来自这块 HTML 里的 `.kssm-container`。
+        返回 HTML，不是 JSON 信封。`emapDir` 必须是字面 `*default`。
+      parameters:
+        - $ref: "#/components/parameters/emapDir"
+      responses:
+        "200":
+          description: HTML
+          content:
+            text/html:
+              schema:
+                type: string
+
+components:
+  parameters:
+    emapDir:
+      name: emapDir
+      in: path
+      required: true
+      description: 字面路径段 `*default`。星号是目录名的一部分，不是通配符。
+      schema:
+        type: string
+        enum: ["*default"]
+      example: "*default"
+  securitySchemes:
+    ehallCookies:
+      type: apiKey
+      in: cookie
+      name: CASTGC
+      description: 占位。真正请求需要 appShow 之后的 ehallapp 会话 cookie。见[登录](/auth)。
+  schemas:
+    Term:
+      type: object
+      additionalProperties: true
+      required: [DM, MC]
+      properties:
+        DM:
+          type: string
+          description: 学期代码，等同课表里的 XNXQDM
+        MC:
+          type: string
+        XNDM:
+          type: [string, "null"]
+        XQDM:
+          type: [string, "null"]
+    StudentInfo:
+      type: object
+      additionalProperties: true
+      required: [XH]
+      properties:
+        XH:
+          type: string
+        XM:
+          type: [string, "null"]
+    MyCourse:
+      type: object
+      additionalProperties: true
+      required: [KCH, JXBID, JXBMC]
+      properties:
+        KCH:
+          type: string
+        JXBID:
+          type: string
+          description: 教学班
+        JXBMC:
+          type: string
+        KCM:
+          type: [string, "null"]
+        SKJS:
+          type: [string, "null"]
+          description: 上课教师
+        ZCXQJCDD:
+          type: [string, "null"]
+          description: 周次星期节次地点
+        PKDWDM:
+          type: [string, "null"]
+        PKDWDM_DISPLAY:
+          type: [string, "null"]
+        XF:
+          type: [string, number, "null"]
+        XKLY:
+          type: [string, "null"]
+        XKLY_DISPLAY:
+          type: [string, "null"]
+        SKSM:
+          type: [string, "null"]
+        TKJG:
+          type: [string, "null"]
+        QMKSXX:
+          type: [string, "null"]
+          description: 期末考试信息
+        QTXX:
+          type: [string, "null"]
+        JSHS:
+          type: [string, "null"]
+          description: 教师联系
+        XNXQDM:
+          type: [string, "null"]
+        KXH:
+          type: [string, "null"]
+        SFKT:
+          type: [string, "null"]
+    EhallPage:
+      type: object
+      properties:
+        totalSize:
+          type: integer
+        pageNumber:
+          type: integer
+        pageSize:
+          type: integer
+        rows:
+          type: array
+          items: {}
+        extParams: {}
+    TermListEnvelope:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "0"
+        datas:
+          type: object
+          properties:
+            xnxqcx:
+              allOf:
+                - $ref: "#/components/schemas/EhallPage"
+                - type: object
+                  properties:
+                    rows:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/Term"
+    CurrentTermEnvelope:
+      type: object
+      properties:
+        code:
+          type: string
+        datas:
+          type: object
+          properties:
+            dqxnxq:
+              allOf:
+                - $ref: "#/components/schemas/EhallPage"
+                - type: object
+                  properties:
+                    rows:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/Term"
+    StudentInfoEnvelope:
+      type: object
+      properties:
+        code:
+          type: string
+        datas:
+          type: object
+          properties:
+            cxxsjbxx:
+              allOf:
+                - $ref: "#/components/schemas/EhallPage"
+                - type: object
+                  properties:
+                    rows:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/StudentInfo"
+    MyCourseListEnvelope:
+      type: object
+      properties:
+        code:
+          type: string
+        datas:
+          type: object
+          properties:
+            cxxskclb:
+              allOf:
+                - $ref: "#/components/schemas/EhallPage"
+                - type: object
+                  properties:
+                    rows:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/MyCourse"
+    CourseInfoRow:
+      type: object
+      additionalProperties: true
+      required: [KCH]
+      properties:
+        KCH:
+          type: string
+        KCM:
+          type: [string, "null"]
+        XF:
+          type: [string, number, "null"]
+        XS:
+          type: [string, number, "null"]
+        KKDWDM:
+          type: [string, "null"]
+        KKDWDM_DISPLAY:
+          type: [string, "null"]
+        KCXZDM:
+          type: [string, "null"]
+        KCXZDM_DISPLAY:
+          type: [string, "null"]
+    CourseTextbookRow:
+      type: object
+      additionalProperties: true
+      properties:
+        KCH:
+          type: [string, "null"]
+        JCMC:
+          type: [string, "null"]
+          description: 教材名称
+        ISBN:
+          type: [string, "null"]
+        ZZ:
+          type: [string, "null"]
+          description: 作者
+        CBS:
+          type: [string, "null"]
+          description: 出版社
+    CourseInfoEnvelope:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "0"
+        datas:
+          type: object
+          properties:
+            cxkcxx:
+              allOf:
+                - $ref: "#/components/schemas/EhallPage"
+                - type: object
+                  properties:
+                    rows:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/CourseInfoRow"
+    CourseTextbookEnvelope:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "0"
+        datas:
+          type: object
+          properties:
+            cxkczjjcxx:
+              allOf:
+                - $ref: "#/components/schemas/EhallPage"
+                - type: object
+                  properties:
+                    rows:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/CourseTextbookRow"

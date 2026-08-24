@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="168" height="28" viewBox="0 0 168 28" fill="none">
+  <rect x="1" y="4" width="20" height="20" rx="4" stroke="#C5D0E8" stroke-width="1.6"/>
+  <path d="M6.5 14h9M11 9.5v9" stroke="#C5D0E8" stroke-width="1.6" stroke-linecap="square"/>
+  <text x="30" y="19" font-family="ui-sans-serif, system-ui, sans-serif" font-size="15" font-weight="600" fill="#E8EAF0">nju-openapi</text>
+</svg>

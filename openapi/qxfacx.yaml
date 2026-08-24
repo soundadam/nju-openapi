@@ -1,0 +1,534 @@
+openapi: 3.1.0
+info:
+  title: 培养方案 qxfacx
+  version: 0.1.0
+  summary: ehall 本-培养方案查询
+  description: |
+    非官方。服务大厅「本-培养方案查询」。
+
+    列表在 `qxfacx`，详情 / 节点 / 节点课程走 `jwpubapp` 的 pyfa 模块。
+    多角色时必须先 `appShow` + 带 `_roleId` 的 index + `changeAppRole`，否则 302/403。
+
+    `appShow` 见 [登录](/auth)，本文件不重复该路径。
+  x-source: https://ehallapp.nju.edu.cn/jwapp/sys/qxfacx
+  x-captured: "2026-08-24"
+  x-appId: "4766860087431764"
+  x-defaultRoleId: "20220913102717892"
+servers:
+  - url: https://ehallapp.nju.edu.cn
+security:
+  - ehallCookies: []
+tags:
+  - name: 会话
+  - name: 方案
+  - name: 节点
+paths:
+  /jwapp/sys/qxfacx/{emapDir}/index.do:
+    get:
+      tags: [会话]
+      operationId: qxfacxIndex
+      summary: 培养方案应用首页
+      parameters:
+        - $ref: "#/components/parameters/emapDir"
+        - name: _roleId
+          in: query
+          required: true
+          schema:
+            type: string
+            default: "20220913102717892"
+        - name: EMAP_LANG
+          in: query
+          schema:
+            type: string
+            default: zh
+        - name: THEME
+          in: query
+          schema:
+            type: string
+            default: ""
+      responses:
+        "200":
+          description: 应用页 HTML
+        "403":
+          description: 缺应用授权
+
+  /jwapp/sys/funauthapp/api/changeAppRole/qxfacx/{roleId}.do:
+    post:
+      tags: [会话]
+      operationId: qxfacxChangeAppRole
+      summary: 切换培养方案角色
+      description: POST + `selectedRoleId`。默认本科学生组 `20220913102717892`。
+      parameters:
+        - name: roleId
+          in: path
+          required: true
+          schema:
+            type: string
+            default: "20220913102717892"
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [selectedRoleId]
+              properties:
+                selectedRoleId:
+                  type: string
+                  default: "20220913102717892"
+      responses:
+        "200":
+          description: 角色已切换
+
+  /jwapp/sys/qxfacx/modules/pyfacxepg/qxpyfacxzl.do:
+    post:
+      tags: [方案]
+      operationId: qxfacxListPrograms
+      summary: 培养方案列表
+      description: |
+        action `qxpyfacxzl`。排序默认 `-NJDM,+DWDM,+ZYDM`。
+
+        `querySetting` 总会带 `SFXYSHFA=0`、`FAZTDM=99`。
+        可选：`PYFAMC` include、`NJDM` / `DWDM` / `XDLXDM` equal。
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [querySetting, "*order", pageNumber, pageSize]
+              properties:
+                querySetting:
+                  type: string
+                "*order":
+                  type: string
+                  default: "-NJDM,+DWDM,+ZYDM"
+                pageNumber:
+                  type: string
+                  default: "1"
+                pageSize:
+                  type: string
+                  default: "10"
+            examples:
+              byName:
+                value:
+                  querySetting: '[{"name":"PYFAMC","value":"计算机","linkOpt":"and","builder":"include"},{"name":"SFXYSHFA","value":"0","linkOpt":"and","builder":"equal"},{"name":"FAZTDM","value":"99","linkOpt":"and","builder":"equal"}]'
+                  "*order": "-NJDM,+DWDM,+ZYDM"
+                  pageNumber: "1"
+                  pageSize: "200"
+      responses:
+        "200":
+          description: 信封 datas.qxpyfacxzl
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProgramListEnvelope"
+              examples:
+                ok:
+                  value:
+                    code: "0"
+                    datas:
+                      qxpyfacxzl:
+                        totalSize: 1
+                        pageNumber: 1
+                        pageSize: 200
+                        rows:
+                          - PYFADM: "EXAMPLE_PYFADM"
+                            PYFAMC: "示例专业培养方案"
+                            NJDM: "2023"
+                            NJDM_DISPLAY: "2023"
+                            DWDM: "400000"
+                            DWDM_DISPLAY: "示例院系"
+                            ZYDM: "080901"
+                            ZYDM_DISPLAY: "示例专业"
+                            ZYFXDM: null
+                            ZYFXDM_DISPLAY: null
+                            XDLXDM: "01"
+                            XDLXDM_DISPLAY: "主修"
+                            PYCCDM_DISPLAY: "本科"
+                            FATS: null
+                            PYMB: null
+                            XDYQ: null
+                            ZGKC: null
+
+  /jwapp/sys/jwpubapp/modules/pyfa/cxqxpyfandcxwqx.do:
+    post:
+      tags: [方案]
+      operationId: qxfacxProgramDetail
+      summary: 培养方案详情
+      description: action `cxqxpyfandcxwqx`。form 需要 `PYFADM`。详情一般 `pageSize=1`。
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [PYFADM]
+              properties:
+                PYFADM:
+                  type: string
+                  example: EXAMPLE_PYFADM
+                pageNumber:
+                  type: string
+                  default: "1"
+                pageSize:
+                  type: string
+                  default: "1"
+      responses:
+        "200":
+          description: 信封 datas.cxqxpyfandcxwqx
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProgramDetailEnvelope"
+              examples:
+                ok:
+                  value:
+                    code: "0"
+                    datas:
+                      cxqxpyfandcxwqx:
+                        totalSize: 1
+                        pageNumber: 1
+                        pageSize: 1
+                        rows:
+                          - PYFADM: "EXAMPLE_PYFADM"
+                            PYFAMC: "示例专业培养方案"
+                            NJDM: "2023"
+                            NJDM_DISPLAY: "2023"
+                            DWDM: "400000"
+                            DWDM_DISPLAY: "示例院系"
+                            ZYDM: "080901"
+                            ZYDM_DISPLAY: "示例专业"
+                            XDLXDM: "01"
+                            XDLXDM_DISPLAY: "主修"
+                            PYCCDM_DISPLAY: "本科"
+                            PYMB: "示例培养目标"
+                            XDYQ: "示例修读要求"
+                            ZGKC: "示例准出要求"
+
+  /jwapp/sys/jwpubapp/modules/pyfa/kzcx.do:
+    post:
+      tags: [节点]
+      operationId: qxfacxListNodes
+      summary: 培养方案节点
+      description: |
+        action `kzcx`。方案树节点，主键 `KZH`，父节点 `FKZH`。
+        只传 `PYFADM` 列出全部节点；再加 `KZH` 可取单节点。
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [PYFADM]
+              properties:
+                PYFADM:
+                  type: string
+                  example: EXAMPLE_PYFADM
+                KZH:
+                  type: string
+                  description: 可选，节点代码
+                pageNumber:
+                  type: string
+                pageSize:
+                  type: string
+      responses:
+        "200":
+          description: 信封 datas.kzcx
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NodeListEnvelope"
+              examples:
+                ok:
+                  value:
+                    code: "0"
+                    datas:
+                      kzcx:
+                        totalSize: 1
+                        rows:
+                          - PYFADM: "EXAMPLE_PYFADM"
+                            KZH: "EXAMPLE_KZH"
+                            FKZH: null
+                            KZM: "专业核心课程"
+                            KZLXDM: "1"
+                            KZLXDM_DISPLAY: "课程类"
+                            KCLBDM: null
+                            KCLBDM_DISPLAY: null
+                            KCZXF: "12"
+                            ZSXDXF: "12"
+                            KCZMS: "4"
+                            XDYQC: null
+
+  /jwapp/sys/jwpubapp/modules/pyfa/kzkccxnddz.do:
+    post:
+      tags: [节点]
+      operationId: qxfacxListNodeCourses
+      summary: 节点课程
+      description: |
+        action `kzkccxnddz`。需要 `PYFADM` + `KZH`。排序默认 `+KCH`。
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [PYFADM, KZH, "*order", pageNumber, pageSize]
+              properties:
+                PYFADM:
+                  type: string
+                  example: EXAMPLE_PYFADM
+                KZH:
+                  type: string
+                  example: EXAMPLE_KZH
+                "*order":
+                  type: string
+                  default: "+KCH"
+                pageNumber:
+                  type: string
+                  default: "1"
+                pageSize:
+                  type: string
+                  default: "200"
+      responses:
+        "200":
+          description: 信封 datas.kzkccxnddz
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NodeCourseListEnvelope"
+              examples:
+                ok:
+                  value:
+                    code: "0"
+                    datas:
+                      kzkccxnddz:
+                        totalSize: 1
+                        pageNumber: 1
+                        pageSize: 200
+                        rows:
+                          - PYFADM: "EXAMPLE_PYFADM"
+                            PYFAMC: "示例专业培养方案"
+                            KZH: "EXAMPLE_KZH"
+                            KZM: "专业核心课程"
+                            KCH: "00000000H"
+                            KCM: "示例课程"
+                            XF: "3"
+                            XS: "48"
+                            XNXQ: "3"
+                            XDXQ: "3"
+                            KKDWDM_DISPLAY: "示例院系"
+                            KCLBDM_DISPLAY: "专业课"
+                            KCXZDM_DISPLAY: "必修"
+                            SFKK_DISPLAY: "是"
+
+components:
+  parameters:
+    emapDir:
+      name: emapDir
+      in: path
+      required: true
+      description: 字面路径段 `*default`。星号是目录名的一部分，不是通配符。
+      schema:
+        type: string
+        enum: ["*default"]
+      example: "*default"
+  securitySchemes:
+    ehallCookies:
+      type: apiKey
+      in: cookie
+      name: CASTGC
+      description: 占位。真正请求需要 appShow 之后的 ehallapp 会话 cookie。见[登录](/auth)。
+  schemas:
+    TrainingProgram:
+      type: object
+      additionalProperties: true
+      required: [PYFADM, PYFAMC]
+      properties:
+        PYFADM:
+          type: string
+          description: 培养方案代码
+        PYFAMC:
+          type: string
+        NJDM:
+          type: [string, "null"]
+        NJDM_DISPLAY:
+          type: [string, "null"]
+        DWDM:
+          type: [string, "null"]
+        DWDM_DISPLAY:
+          type: [string, "null"]
+        ZYDM:
+          type: [string, "null"]
+        ZYDM_DISPLAY:
+          type: [string, "null"]
+        ZYFXDM:
+          type: [string, "null"]
+        ZYFXDM_DISPLAY:
+          type: [string, "null"]
+        XDLXDM:
+          type: [string, "null"]
+        XDLXDM_DISPLAY:
+          type: [string, "null"]
+        PYCCDM_DISPLAY:
+          type: [string, "null"]
+        FATS:
+          type: [string, "null"]
+        PYMB:
+          type: [string, "null"]
+          description: 培养目标
+        XDYQ:
+          type: [string, "null"]
+          description: 修读要求
+        ZGKC:
+          type: [string, "null"]
+          description: 准出课程 / 毕业要求文本
+    TrainingProgramNode:
+      type: object
+      additionalProperties: true
+      required: [PYFADM, KZH, KZM]
+      properties:
+        PYFADM:
+          type: string
+        KZH:
+          type: string
+          description: 节点代码
+        FKZH:
+          type: [string, "null"]
+          description: 父节点
+        KZM:
+          type: string
+        KZLXDM:
+          type: [string, "null"]
+        KZLXDM_DISPLAY:
+          type: [string, "null"]
+        KCLBDM:
+          type: [string, "null"]
+        KCLBDM_DISPLAY:
+          type: [string, "null"]
+        KCZXF:
+          type: [string, number, "null"]
+        ZSXDXF:
+          type: [string, number, "null"]
+          description: 至少修读学分
+        KCZMS:
+          type: [string, number, "null"]
+          description: 课程门数
+        XDYQC:
+          type: [string, "null"]
+    TrainingProgramCourse:
+      type: object
+      additionalProperties: true
+      required: [PYFADM, KZH, KCH, KCM]
+      properties:
+        PYFADM:
+          type: string
+        PYFAMC:
+          type: [string, "null"]
+        KZH:
+          type: string
+        KZM:
+          type: [string, "null"]
+        KCH:
+          type: string
+        KCM:
+          type: string
+        XF:
+          type: [string, "null"]
+        XS:
+          type: [string, "null"]
+        XNXQ:
+          type: [string, "null"]
+          description: 建议修读学期
+        XDXQ:
+          type: [string, "null"]
+        KKDWDM_DISPLAY:
+          type: [string, "null"]
+        KCLBDM_DISPLAY:
+          type: [string, "null"]
+        KCXZDM_DISPLAY:
+          type: [string, "null"]
+        SFKK_DISPLAY:
+          type: [string, "null"]
+    EhallPage:
+      type: object
+      properties:
+        totalSize:
+          type: integer
+        pageNumber:
+          type: integer
+        pageSize:
+          type: integer
+        rows:
+          type: array
+          items: {}
+        extParams: {}
+    ProgramListEnvelope:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "0"
+        datas:
+          type: object
+          properties:
+            qxpyfacxzl:
+              allOf:
+                - $ref: "#/components/schemas/EhallPage"
+                - type: object
+                  properties:
+                    rows:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/TrainingProgram"
+    ProgramDetailEnvelope:
+      type: object
+      properties:
+        code:
+          type: string
+        datas:
+          type: object
+          properties:
+            cxqxpyfandcxwqx:
+              allOf:
+                - $ref: "#/components/schemas/EhallPage"
+                - type: object
+                  properties:
+                    rows:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/TrainingProgram"
+    NodeListEnvelope:
+      type: object
+      properties:
+        code:
+          type: string
+        datas:
+          type: object
+          properties:
+            kzcx:
+              allOf:
+                - $ref: "#/components/schemas/EhallPage"
+                - type: object
+                  properties:
+                    rows:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/TrainingProgramNode"
+    NodeCourseListEnvelope:
+      type: object
+      properties:
+        code:
+          type: string
+        datas:
+          type: object
+          properties:
+            kzkccxnddz:
+              allOf:
+                - $ref: "#/components/schemas/EhallPage"
+                - type: object
+                  properties:
+                    rows:
+                      type: array
+                      items:
+                        $ref: "#/components/schemas/TrainingProgramCourse"

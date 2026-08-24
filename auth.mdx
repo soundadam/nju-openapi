@@ -1,0 +1,59 @@
+---
+title: 登录
+description: CASTGC、appShow、index、changeAppRole。
+---
+
+四个应用都要先拿到会话，再进具体 `.do`。
+
+浏览器路径：统一身份认证 → `ehall.nju.edu.cn` → 打开应用 → `ehallapp.nju.edu.cn/jwapp/...`。文档里的请求默认带 `Cookie: CASTGC=...`。
+
+统一身份认证有时会出滑块验证码。验证码过了才能拿到 `CASTGC`。文档不写绕过验证码的办法。
+
+## 顺序
+
+1. 登录 `authserver.nju.edu.cn`，拿到 `CASTGC`。
+2. `GET https://ehall.nju.edu.cn/appShow?appId=...`，跟 302。
+3. `GET /jwapp/sys/{应用}/*default/index.do`。路径里的 `*default` 是目录名，不是通配符。
+4. `changeAppRole`：成绩查询、我的课表是 **GET**；本-课表查询、培养方案查询是 **POST**，body 带 `selectedRoleId`。
+
+`appShow` 只在这里写一遍，四个 OpenAPI 页不再重复。
+
+## 四个应用
+
+| 应用 | appId | 默认 roleId | 角色名 | changeAppRole |
+| --- | --- | --- | --- | --- |
+| 成绩查询 `cjcx` | `4768574631264620` | `20230211151103310` | 教务学生组 | GET |
+| 我的课表 `wdkb` | `4770397878132218` | `20230211151103310` | 教务学生组 | GET |
+| 本-课表查询 `kcbcx` | `4766960573884517` | `20220913102717892` | 本科学生组 | POST + `selectedRoleId` |
+| 培养方案查询 `qxfacx` | `4766860087431764` | `20220913102717892` | 本科学生组 | POST + `selectedRoleId` |
+
+`appId` 和 `roleId` 会变。以当时网页为准。
+
+## 示例
+
+```bash
+curl -sS -D - -o /dev/null \
+  'https://ehall.nju.edu.cn/appShow?appId=4768574631264620' \
+  -H 'Cookie: CASTGC=...'
+```
+
+```bash
+curl -sS -o /dev/null \
+  'https://ehallapp.nju.edu.cn/jwapp/sys/cjcx/*default/index.do' \
+  -H 'Cookie: CASTGC=...'
+```
+
+```bash
+curl -sS -o /dev/null \
+  'https://ehallapp.nju.edu.cn/jwapp/sys/cjcx/changeAppRole/cjcx/20230211151103310.do' \
+  -H 'Cookie: CASTGC=...'
+```
+
+本-课表查询：
+
+```bash
+curl -sS -o /dev/null -X POST \
+  'https://ehallapp.nju.edu.cn/jwapp/sys/kcbcx/changeAppRole/kcbcx/20220913102717892.do' \
+  -H 'Cookie: CASTGC=...' \
+  --data-urlencode 'selectedRoleId=20220913102717892'
+```
