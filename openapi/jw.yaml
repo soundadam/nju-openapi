@@ -1,0 +1,270 @@
+openapi: 3.1.0
+info:
+  title: 教务网 jw
+  version: "0.1.0"
+  summary: jw.nju.edu.cn 公开门户的抓取接口。无需登录，非官方，会变。
+  description: |
+    教务网门户是 WebPlus CMS 站点，页面公开，不用登录。
+
+    列表数据统一走 `POST /_wp3services/generalQuery?queryObj=articles`：form 里带站点号
+    `siteId=414`（教务网在 WebPlus 里的站点号）和栏目号 `columnId`，返回文章列表 JSON。栏目号：
+
+    - 公告通知 `26263`
+    - 教育部文件 `24747`、学校文件 `24750`
+    - 学生手册 `24748`、教师手册 `24749`、办事流程 `24751`
+    - 部门领导 `65047`、机构设置 `65048`（下属机构栏目当前在 `65051`–`65060`）
+    - 校历目录 `24809`、各类表格 `24815`、各类模板 `24816`
+
+    正文、校历、附件没有 JSON 接口，只能抓 `.htm` 页解析 HTML，选择器写在各接口说明里。
+  x-source: https://jw.nju.edu.cn
+  x-captured: "2026-08-24"
+  x-siteId: "414"
+
+servers:
+  - url: https://jw.nju.edu.cn
+    description: 教务网门户，公开抓取
+
+tags:
+  - name: 文章
+  - name: 校历
+  - name: 机构
+  - name: 正文与下载
+
+paths:
+  /_wp3services/generalQuery:
+    post:
+      tags: [文章]
+      operationId: jwListArticles
+      summary: 栏目文章分页
+      description: |
+        WebPlus 通用查询。`queryObj=articles` 挂在 query 上，其余全在 form 里：
+
+        - `siteId`：固定 `414`
+        - `columnId`：栏目号，见文件开头清单
+        - `pageIndex`：页码，从 1 起
+        - `rows`：每页条数
+        - `orders`：排序，JSON 数组字符串。网页默认置顶、new 标、发布时间三级倒序
+        - `returnInfos`：要哪些字段，JSON 数组字符串。`pattern` 里 `lp` 是标题截断字数（超出变省略号），`d` 是日期格式。公告通知版多要 `f1`（标签）、`topImg`、`newImg`；普通栏目版只要 title、publishTime、link
+
+        翻页翻到 `data` 累计条数够 `total`，或者返回空页为止。
+      parameters:
+        - name: queryObj
+          in: query
+          required: true
+          description: 查询对象，文章列表固定 articles。
+          schema:
+            type: string
+            enum: [articles]
+          example: articles
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/GeneralQueryForm"
+            examples:
+              announcements:
+                summary: 公告通知（columnId 26263）
+                value:
+                  siteId: "414"
+                  columnId: "26263"
+                  pageIndex: 1
+                  rows: 20
+                  orders: '[{"field":"top","type":"desc"},{"field":"new","type":"desc"},{"field":"publishTime","type":"desc"}]'
+                  returnInfos: '[{"field":"title","pattern":[{"name":"lp","value":"999"}],"name":"title"},{"field":"f1","name":"f1"},{"field":"publishTime","pattern":[{"name":"d","value":"MM-dd"}],"name":"publishTime"},{"field":"topImg","name":"topImg"},{"field":"newImg","name":"newImg"},{"field":"link","name":"link"}]'
+              column:
+                summary: 普通栏目（教育部文件 24747）
+                value:
+                  siteId: "414"
+                  columnId: "24747"
+                  pageIndex: 1
+                  rows: 20
+                  orders: '[{"field":"top","type":"desc"},{"field":"new","type":"desc"},{"field":"publishTime","type":"desc"}]'
+                  returnInfos: '[{"field":"title","pattern":[{"name":"lp","value":"999"}],"name":"title"},{"field":"publishTime","pattern":[{"name":"d","value":"yyyy-MM-dd"}],"name":"publishTime"},{"field":"link","name":"link"}]'
+      responses:
+        "200":
+          description: 文章列表信封。
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArticlePage"
+              example:
+                status: 1
+                result: success
+                total: 137
+                data:
+                  - id: 123456
+                    title: 示例通知标题
+                    f1: "信息,教学"
+                    publishTime: "01-01"
+                    topImg: null
+                    newImg: null
+                    url: /2026/0101/c26263a123456/page.htm
+                    wapUrl: null
+                    trueWapUrl: null
+                    publisher: 示例发布单位
+                    publisherId: 1000
+                    visitCount: 100
+                    mircImgPath: null
+                    siteArtId: 123456
+
+  /qxnjxxl/list.htm:
+    get:
+      tags: [校历]
+      operationId: jwCalendar
+      summary: 全学年教学校历页
+      description: |
+        返回 HTML，没有 JSON。解析点：
+
+        - 标题：`.arti_title`
+        - 校历 PDF：`a[href$='.pdf']`、`a[href*='.pdf?']` 的 href；再加 `.wp_pdf_player` 的 `pdfsrc` 属性，或播放器 iframe `src` 里的 `file` 查询参数
+        - 校历图片：`.read img`、`.wp_articlecontent img`、`img[data-layer='photo']`，地址优先取 `original-src`，再 `data-imgsrc`，最后 `src`；跳过 `/icon_pdf.` 图标和 `/_visitcount` 计数图
+
+        历年校历在「校历目录」栏目（generalQuery，columnId 24809）。
+      responses:
+        "200":
+          description: 校历页 HTML。
+          content:
+            text/html:
+              schema:
+                type: string
+              example: '<h1 class="arti_title">南京大学2026-2027学年校历</h1><a href="/_upload/article/files/xx/calendar.pdf">校历.pdf</a>'
+
+  /65048/list.htm:
+    get:
+      tags: [机构]
+      operationId: jwInstitutions
+      summary: 机构设置总览页
+      description: |
+        返回 HTML。左栏 `.wp_column.selected .sub-item-link` 每个链接 href 的第一段数字，就是下属机构的栏目号（当前在 65051–65060；65048 是总览自己，跳过）。拿到栏目号再回 generalQuery 查该机构的介绍文章。
+      responses:
+        "200":
+          description: 机构设置页 HTML。
+          content:
+            text/html:
+              schema:
+                type: string
+              example: '<div class="wp_column selected"><a class="sub-item-link" href="/65051/list.htm">示例机构名</a></div>'
+
+  /{articlePath}:
+    get:
+      tags: [正文与下载]
+      operationId: jwReadArticle
+      summary: 文章正文页（含下载附件）
+      description: |
+        `articlePath` 填列表接口返回的 `url`（相对路径，可含斜杠）。返回 HTML，转 Markdown 的解析点：
+
+        - 标题：`.arti_title`、`.col_title h2`、`title`
+        - 正文容器：`.wp_articlecontent`、`.read`、`.col_news_con`
+        - 内嵌 PDF：`.wp_pdf_player` 或任何带 `pdfsrc` 属性的元素，取 `pdfsrc`；或播放器 iframe `src` 里的 `file` 查询参数
+
+        下载专区（校历目录 24809、各类表格 24815、各类模板 24816）在同一页面里挖真实附件：
+
+        - 正文里的 `a[href]`，后缀是 pdf/doc/docx/xls/xlsx/ppt/pptx/zip/rar/7z/jpg/jpeg/png 就算附件
+        - 附件名优先取 `sudyfile-attr` 属性 JSON 里的 title，退而取 `download`、`title` 属性或链接文本
+        - 文章图片地址取 `original-src` > `data-imgsrc` > `src`，只收 `/_upload/article/images/` 下的
+        - 旧附件域名 `webplus.nju.edu.cn/_upload/...` 直接换成 `jw.nju.edu.cn` 就能下
+        - 列表返回的 `url` 本身就是附件后缀时不用抓页，直接下载
+      parameters:
+        - name: articlePath
+          in: path
+          required: true
+          description: 列表返回的文章相对路径，可含斜杠。
+          schema:
+            type: string
+          example: 2026/0101/c26263a123456/page.htm
+      responses:
+        "200":
+          description: 文章页 HTML。
+          content:
+            text/html:
+              schema:
+                type: string
+              example: '<h1 class="arti_title">示例通知标题</h1><div class="wp_articlecontent"><p>正文</p></div>'
+
+components:
+  schemas:
+    GeneralQueryForm:
+      type: object
+      required: [siteId, columnId, pageIndex, rows, orders, returnInfos]
+      properties:
+        siteId:
+          type: string
+          description: WebPlus 站点号，教务网固定 "414"。
+        columnId:
+          type: string
+          description: 栏目号，见文件开头清单。
+        pageIndex:
+          type: integer
+          description: 页码，从 1 起。
+        rows:
+          type: integer
+          description: 每页条数。
+        orders:
+          type: string
+          description: 排序规则，JSON 数组字符串，元素带 field 和 type（asc/desc）。
+        returnInfos:
+          type: string
+          description: 返回字段映射，JSON 数组字符串，元素带 field、name，可选 pattern（lp 截断标题、d 日期格式）。
+    ArticlePage:
+      type: object
+      required: [status, result, total, data]
+      properties:
+        status:
+          type: integer
+          description: 状态码。
+        result:
+          type: string
+          description: 结果说明字符串。
+        total:
+          type: integer
+          description: 栏目文章总数，翻页拿它判断是否到底。
+        data:
+          type: array
+          description: 当前页文章。
+          items:
+            $ref: "#/components/schemas/Article"
+    Article:
+      type: object
+      additionalProperties: true
+      required: [id, title, publishTime, url]
+      properties:
+        id:
+          type: integer
+          description: 文章 ID。
+        title:
+          type: string
+          description: 标题，按 returnInfos 的 lp 截断。
+        f1:
+          type: [string, "null"]
+          description: 通知标签，逗号分隔，如「信息,毕业」。returnInfos 里要了 f1 才有。
+        publishTime:
+          type: string
+          description: 发布时间，格式由 returnInfos 的 d 决定（MM-dd 或 yyyy-MM-dd）。
+        topImg:
+          type: [string, "null"]
+          description: 置顶标图标 URL，没置顶为空。
+        newImg:
+          type: [string, "null"]
+          description: new 标图标 URL。
+        url:
+          type: string
+          description: 文章链接，多为相对路径，拼在站点根上。
+        wapUrl:
+          type: [string, "null"]
+        trueWapUrl:
+          type: [string, "null"]
+        publisher:
+          type: [string, "null"]
+          description: 发布人/单位。
+        publisherId:
+          type: [integer, "null"]
+        visitCount:
+          type: [integer, "null"]
+          description: 浏览量。
+        mircImgPath:
+          type: [string, "null"]
+          description: 缩略图路径。
+        siteArtId:
+          type: [integer, "null"]
+          description: 站内文章 ID。
