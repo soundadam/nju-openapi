@@ -117,6 +117,7 @@ paths:
           application/x-www-form-urlencoded:
             schema:
               type: object
+              required: [querySetting, "*order", pageNumber, pageSize]
               properties:
                 querySetting:
                   type: string
@@ -269,7 +270,7 @@ paths:
           application/x-www-form-urlencoded:
             schema:
               type: object
-              required: [PYFADM, KZH]
+              required: [PYFADM, KZH, "*order", pageNumber, pageSize]
               properties:
                 PYFADM:
                   type: string

@@ -153,6 +153,7 @@ paths:
           application/x-www-form-urlencoded:
             schema:
               type: object
+              required: [CXYH, querySetting, "*order", pageNumber, pageSize]
               properties:
                 CXYH:
                   type: string

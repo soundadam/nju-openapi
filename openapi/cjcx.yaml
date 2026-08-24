@@ -314,7 +314,7 @@ components:
         pageSize:
           type: string
           default: "10"
-      required: [pageNumber, pageSize]
+      required: ["*order", pageNumber, pageSize]
     Grade:
       type: object
       additionalProperties: true

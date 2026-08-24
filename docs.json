@@ -48,6 +48,12 @@
     ]
   },
   "navbar": {
+    "links": [
+      {
+        "label": "nju-cli",
+        "href": "https://github.com/nju-cli/nju-cli"
+      }
+    ],
     "primary": {
       "type": "github",
       "href": "https://github.com/soundadam/nju-openapi"
