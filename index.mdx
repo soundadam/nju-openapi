@@ -1,56 +1,79 @@
 ---
 title: 这是什么
-description: 南京大学教务网页在登录后实际打的 HTTP 接口说明。给人和 agent 查功能用。
+description: 南京大学各网页系统登录后实际打的 HTTP 接口说明。给人和 agent 查功能用。
 ---
 
-这是一份**非官方**文档。学校没有发布对应的学生 API 手册。这里记的是 `ehall.nju.edu.cn` / `ehallapp.nju.edu.cn` 上，浏览器登录后会打的请求：路径、form 字段、返回信封、字段名。
+这是一份**非官方**文档。学校没有发布对应的学生 API 手册。这里记的是南大各网页系统在浏览器里实际打的请求：路径、参数、form 字段、返回信封、字段名。
 
-用途是查功能：某个列表怎么筛、某张详情怎么取、字段叫什么。不是网关，也不包一层 SDK。请求就是 curl。
+用途是查功能：某个列表怎么筛、某张详情怎么取、通知从哪拉、字段叫什么。不是网关，也不包一层 SDK。请求就是 curl。
 
 Mintlify 站点负责给人读、给 agent 读。Playground 只展示请求形状（`simple`，关代理），不要从文档页打生产。
 
-接口会变。没有 SLA。不要贴真实学号、成绩、课表。
+接口会变，没有 SLA。不要贴真实学号、成绩、课表、手机号。
 
-## 范围
+## 覆盖范围
 
-「教务」在这里指 ehall 里的 `jwapp`，主机是 `ehallapp.nju.edu.cn`。不是 `jw.nju.edu.cn` 通知站。
+分三块。**教务 ehall** 是登录后的 `jwapp` 业务接口；**门户与通知**大多是公开的 CMS / 列表抓取；**校园服务**是另一套带独立鉴权的系统。
 
-目前只写四个应用：
+### 教务 ehall（需登录）
+
+host 是 `ehallapp.nju.edu.cn`。先过[统一认证](/authserver)拿 `CASTGC`，再按 [ehall 会话](/auth) 建会话。
 
 | 应用 | 代码 | 干什么 |
 | --- | --- | --- |
-| 成绩查询 | `cjcx` | 课程成绩、四六级、体测、当前学期、学期代码表 |
-| 我的课表 | `wdkb` | 个人课表、当前学期、课程信息、周次节次 |
+| 成绩查询 | `cjcx` | 课程成绩、四六级、体测、学期代码表 |
+| 我的课表 | `wdkb` | 个人课表、当前学期、课程信息、教材 |
 | 本-课表查询 | `kcbcx` | 全校开课列表、教学班详情 |
-| 培养方案查询 | `qxfacx` | 方案、方向、课程、学分、免修 |
+| 培养方案查询 | `qxfacx` | 方案、节点、节点课程、学分 |
+| 免修不免考 | `mtxkbl` | 可申请课程、申请列表、提交申请（**含写操作**）|
 
-不写：选课、通知站 HTML、其它 ehall 应用、培养方案里的写接口。
+### 门户与通知（多为公开）
 
-## 请求长什么样
+多是 WebPlus / 博杉这类 CMS 的通知、文章、下载抓取，基本不用登录。
 
-几乎都是 **POST form**。列表筛选 `querySetting` 是 JSON **数组的字符串**，不是 JSON body。分页是 `pageNumber` / `pageSize`。排序字段名就是 `*order`。
+| 站点 | host | 干什么 |
+| --- | --- | --- |
+| 教务网 | `jw.nju.edu.cn` | 通知公告、校历、下载专区、规章制度 |
+| 科研院 | `scit.nju.edu.cn` | 科研通知、公示、项目 / 成果 |
+| 资产管理处 | `zcc.nju.edu.cn` | 通知、规章、招租、办事指南 |
+| 研招网 | `yzb.nju.edu.cn` | 招生、推免、分数线、报录统计 |
+| 团委 | `tuanwei.nju.edu.cn` | 动态、公告 |
+| 信息化 | `itsc.nju.edu.cn` | 服务说明、正版软件教程 |
+| 交换生 | `elite.nju.edu.cn` | 交流项目、录取公示（公开 JSON）|
 
-成功时 JSON 信封一般是：
+### 校园服务（需登录）
+
+| 系统 | host | 干什么 |
+| --- | --- | --- |
+| 体育场馆 | `ggtypt.nju.edu.cn` | 场馆查询、预约、订单（独立 OAuth + 请求签名 + 验证码）|
+
+## 两种请求形状
+
+**ehall** 几乎都是 POST form。列表筛选 `querySetting` 是 JSON **数组的字符串**，分页 `pageNumber` / `pageSize`，排序 `*order`。成功信封：
 
 ```json
 { "code": "0", "datas": { "某个.do的名字": { "totalSize": 1, "rows": [] } } }
 ```
 
-`code` 是字符串 `"0"`。成绩学期代码表例外：URL 是 UUID `.do`，信封键是 `code`。
-
-示例：
+行字段用教务原名：`KCH`、`KCM`、`XF`、`XNXQDM`。
 
 ```bash
 curl -sS -X POST 'https://ehallapp.nju.edu.cn/jwapp/sys/cjcx/modules/cjcx/cxxscjd.do' \
   -H 'Cookie: CASTGC=...' \
-  --data-urlencode 'querySetting=[{"name":"SHOWMAXCJ","caption":"显示最高成绩","linkOpt":"AND","builderList":"cbl_m_List","builder":"m_value_equal","value":"0","value_display":"否"},{"name":"CJXZ","linkOpt":"AND","builder":"m_value_equal","value":"0,4,5,9"}]' \
+  --data-urlencode 'querySetting=[...]' \
   --data-urlencode '*order=-XNXQDM,+KCH,+KCXZ' \
   --data-urlencode 'pageNumber=1' \
   --data-urlencode 'pageSize=10'
 ```
 
-行字段用教务原名：`KCH`、`KCM`、`XF`、`XNXQDM`。OpenAPI 里的示例行是编的。
+**门户**大多是 CMS：有的返回 JSON 文章列表（WebPlus `generalQuery`、交换生 `moreList`），有的只能抓 `list.htm` 的 HTML 再解析。各页会写清是哪种。
+
+## 认证
+
+- [统一认证](/authserver)：`authserver` 登录、密码 AES、滑块验证码、拿 `CASTGC`。
+- [ehall 会话](/auth)：`appShow` → `index` → `changeAppRole`。
+- [Web VPN](/webvpn)：校外访问，aTrust 域名改写 + 短信两阶段。
 
 ## 读文档
 
-先看 [登录](/auth)，再进四个 OpenAPI 页。抓包日期写在各 yaml 的 `x-captured`。
+先看认证三页，再进各系统的 OpenAPI 页。行字段和示例值都是编的。抓包日期写在各 yaml 的 `x-captured`。

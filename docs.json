@@ -14,11 +14,12 @@
   "navigation": {
     "tabs": [
       {
-        "tab": "教务",
+        "tab": "教务 ehall",
+        "icon": "graduation-cap",
         "groups": [
           {
             "group": "说明",
-            "pages": ["index", "auth"]
+            "pages": ["index"]
           },
           {
             "group": "成绩查询",
@@ -35,6 +36,58 @@
           {
             "group": "培养方案",
             "openapi": "openapi/qxfacx.yaml"
+          },
+          {
+            "group": "免修不免考",
+            "openapi": "openapi/mtxkbl.yaml"
+          }
+        ]
+      },
+      {
+        "tab": "认证",
+        "icon": "key-round",
+        "groups": [
+          {
+            "group": "认证",
+            "pages": ["authserver", "auth", "webvpn"]
+          }
+        ]
+      },
+      {
+        "tab": "门户与服务",
+        "icon": "globe",
+        "groups": [
+          {
+            "group": "教务网",
+            "openapi": "openapi/jw.yaml"
+          },
+          {
+            "group": "科研院",
+            "openapi": "openapi/scit.yaml"
+          },
+          {
+            "group": "资产管理处",
+            "openapi": "openapi/zcc.yaml"
+          },
+          {
+            "group": "研招网",
+            "openapi": "openapi/yzb.yaml"
+          },
+          {
+            "group": "团委",
+            "openapi": "openapi/tuanwei.yaml"
+          },
+          {
+            "group": "信息化中心",
+            "openapi": "openapi/itsc.yaml"
+          },
+          {
+            "group": "交换生",
+            "openapi": "openapi/exchange.yaml"
+          },
+          {
+            "group": "体育场馆",
+            "openapi": "openapi/venue.yaml"
           }
         ]
       }
