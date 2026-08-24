@@ -6,11 +6,14 @@ info:
   description: |
     非官方。服务大厅「本-课表查询」。
 
-    列表 action `qxfbkccx`。排序默认 `+KKDWDM,+KCH,+KXH`。
+    列表 action `qxfbkccx`。排序默认 `+KKDWDM,+KCH,+KXH`（KKDWDM 只用于 `*order` / `querySetting`）。
+    行对象用 `PKDWDM` / `XKZRS`，不要写成 `KKDWDM` / `XKRS`。
     Playground 为 simple。对照：`nju-cli ehall all-undergraduate-courses`。
   x-source: nju-cli crates/ehall/src/course_schedule.rs
   x-nju-cli: v1.6
   x-captured: "2026-08-24"
+  x-appId: "4766960573884517"
+  x-defaultRoleId: "20220913102717892"
 servers:
   - url: https://ehallapp.nju.edu.cn
 security:
@@ -48,6 +51,7 @@ paths:
       parameters:
         - name: _roleId
           in: query
+          required: true
           schema:
             type: string
             default: "20220913102717892"
@@ -81,10 +85,12 @@ paths:
             type: string
             default: "20220913102717892"
       requestBody:
+        required: true
         content:
           application/x-www-form-urlencoded:
             schema:
               type: object
+              required: [selectedRoleId]
               properties:
                 selectedRoleId:
                   type: string
@@ -290,16 +296,12 @@ components:
           type: [string, number, "null"]
         PKDWDM:
           type: [string, "null"]
-          description: 排课单位。筛选/排序里还会出现 KKDWDM（开课单位）
+          description: 排课单位。行上是 PKDWDM / XKZRS，不是 KKDWDM / XKRS。KKDWDM 只出现在 `*order` 和 `querySetting`。
         PKDWDM_DISPLAY:
-          type: [string, "null"]
-        KKDWDM:
-          type: [string, "null"]
-        KKDWDM_DISPLAY:
           type: [string, "null"]
         XKZRS:
           type: [string, number, "null"]
-          description: 选课人数
+          description: 选课总人数
         XNXQDM:
           type: [string, "null"]
         XNXQDM_DISPLAY:

@@ -13,6 +13,8 @@ info:
   x-source: nju-cli crates/ehall/src/training_program.rs
   x-nju-cli: v1.6
   x-captured: "2026-08-24"
+  x-appId: "4766860087431764"
+  x-defaultRoleId: "20220913102717892"
 servers:
   - url: https://ehallapp.nju.edu.cn
 security:
@@ -51,6 +53,7 @@ paths:
       parameters:
         - name: _roleId
           in: query
+          required: true
           schema:
             type: string
             default: "20220913102717892"
@@ -84,10 +87,12 @@ paths:
             type: string
             default: "20220913102717892"
       requestBody:
+        required: true
         content:
           application/x-www-form-urlencoded:
             schema:
               type: object
+              required: [selectedRoleId]
               properties:
                 selectedRoleId:
                   type: string

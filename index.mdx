@@ -13,12 +13,12 @@ description: 南京大学 ehall 教务网页内部接口的非官方 OpenAPI。�
 
 只覆盖 **ehall 教务应用**（`ehallapp.nju.edu.cn/jwapp`），四个 nju-cli 已经实现的应用：
 
-| 应用 | 前缀 | appId | 默认 roleId | nju-cli |
-| --- | --- | --- | --- | --- |
-| 成绩查询 | `cjcx` | `4768574631264620` | `20230211151103310` | `ehall grades` |
-| 我的课表 | `wdkb` | `4770397878132218` | `20230211151103310` | `ehall my-course-schedule` |
-| 本-课表查询 | `kcbcx` | `4766960573884517` | `20220913102717892` | `ehall all-undergraduate-courses` |
-| 本-培养方案查询 | `qxfacx` | `4766860087431764` | `20220913102717892` | `ehall training-program` |
+| 应用 | 前缀 | appId | 默认 roleId | x-source | nju-cli |
+| --- | --- | --- | --- | --- | --- |
+| 成绩查询 | `cjcx` | `4768574631264620` | `20230211151103310` | `crates/ehall/src/grade_query.rs` | `ehall grades` |
+| 我的课表 | `wdkb` | `4770397878132218` | `20230211151103310` | `crates/ehall/src/my_course_schedule.rs` | `ehall my-course-schedule` |
+| 本-课表查询 | `kcbcx` | `4766960573884517` | `20220913102717892` | `crates/ehall/src/course_schedule.rs` | `ehall all-undergraduate-courses` |
+| 本-培养方案查询 | `qxfacx` | `4766860087431764` | `20220913102717892` | `crates/ehall/src/training_program.rs` | `ehall training-program` |
 
 「教务」在这里指这些 ehall 应用，**不是** `jw.nju.edu.cn` 通知站。通知站是 HTML 列表，不适合当第一批 OpenAPI。
 
@@ -62,6 +62,6 @@ nju-cli ehall training-program list --name 计算机
 }
 ```
 
-`ACTION` 等于 URL 文件名去掉 `.do`（例如 `cxxscjd.do` → `datas.cxxscjd`）。`code` 不是 `"0"` 就是失败。行对象用教务原字段名：`KCH`、`KCM`、`XF`、`XNXQDM`。
+多数情况下 `ACTION` 等于 URL 文件名去掉 `.do`（例如 `cxxscjd.do` → `datas.cxxscjd`）。成绩查询近期学期代码表例外：路径是 UUID `.do`，信封键是 `code`。`code` 不是 `"0"` 就是失败。行对象用教务原字段名：`KCH`、`KCM`、`XF`、`XNXQDM`、`PYFADM`、`KZH`、`PKDWDM`、`XKZRS`。全校课表行上是 `PKDWDM` / `XKZRS`，不要写成 `KKDWDM` / `XKRS`（`KKDWDM` 只出现在 `*order` / `querySetting`）。
 
 加接口靠抓包，不要猜。流程见 nju-cli 的 `add-new-api` skill。

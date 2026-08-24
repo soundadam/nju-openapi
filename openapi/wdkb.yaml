@@ -12,6 +12,8 @@ info:
   x-source: nju-cli crates/ehall/src/my_course_schedule.rs
   x-nju-cli: v1.6
   x-captured: "2026-08-24"
+  x-appId: "4770397878132218"
+  x-defaultRoleId: "20230211151103310"
 servers:
   - url: https://ehallapp.nju.edu.cn
 security:
@@ -49,6 +51,7 @@ paths:
       parameters:
         - name: _roleId
           in: query
+          required: true
           schema:
             type: string
             default: "20230211151103310"
@@ -180,6 +183,7 @@ paths:
       summary: 我的课表列表
       description: |
         action `cxxskclb`。nju-cli 会同时传顶级 `XNXQDM` 和 `querySetting` 里的同等条件。
+        form 还有 `pageNumber` / `pageSize`，不传 `*order`。
         `querySetting` 示例：`[{"name":"XNXQDM","value":"2025-2026-1","linkOpt":"AND","builder":"equal"}]`。
       requestBody:
         required: true
@@ -187,6 +191,7 @@ paths:
           application/x-www-form-urlencoded:
             schema:
               type: object
+              required: [XNXQDM, querySetting, pageNumber, pageSize]
               properties:
                 XNXQDM:
                   type: string
